@@ -1,0 +1,51 @@
+# ─── Environment & Secrets ───
+.env
+.env.*
+!.env.example
+
+# ─── Python ───
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+venv/
+.venv/
+*.egg
+
+# ─── Node.js ───
+node_modules/
+npm-debug.log*
+yarn-error.log*
+.npm
+
+# ─── Data files (too large for git) ───
+*.nc
+ingestion/source_files/
+ingestion/processed/
+ingestion/parsed_csvs/
+ingestion/parquet/*.parquet
+vector_db/chroma_store/
+vector_db/chroma_data/
+
+# ─── IDE ───
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.cursor/
+
+# ─── OS ───
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ─── Docker ───
+*.log
+
+# ─── Compiled / Build ───
+frontend/dist/
+frontend/build/
+

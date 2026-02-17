@@ -1,0 +1,31 @@
+{
+  "name": "floatchat-backend",
+  "version": "2.0.0",
+  "description": "Backend orchestrator for FloatChat - RAG + SQL + Anomaly + Visualization + Alerts",
+  "main": "server.js",
+  "scripts": {
+    "dev": "nodemon server.js",
+    "start": "NODE_ENV=production node server.js",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "axios": "^1.7.0",
+    "bcrypt": "^6.0.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.0",
+    "express": "^4.19.0",
+    "jsonwebtoken": "^9.0.3",
+    "mongoose": "^9.0.1",
+    "morgan": "^1.10.0",
+    "nodemailer": "^7.0.11",
+    "pg": "^8.12.0",
+    "resend": "^6.5.2"
+  },
+  "devDependencies": {
+    "eslint": "^9.0.0",
+    "nodemon": "^3.1.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
