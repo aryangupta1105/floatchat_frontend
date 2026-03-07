@@ -1,4 +1,5 @@
 import { createAsyncThunk, createSlice } from '@reduxjs/toolkit';
+import { API_BASE } from '../utils/api';
 
 export interface DashStats {
   total_floats: number;
@@ -57,10 +58,10 @@ export const fetchDashboardData = createAsyncThunk(
       const token = localStorage.getItem('token');
       const headers = { Authorization: `Bearer ${token}` };
       const [statsRes, activityRes, depthRes, tsRes] = await Promise.all([
-        fetch('/api/dashboard/stats', { headers }),
-        fetch('/api/dashboard/activity', { headers }),
-        fetch('/api/dashboard/depth-distribution', { headers }),
-        fetch('/api/dashboard/ts-sample', { headers }),
+        fetch(`${API_BASE}/dashboard/stats`, { headers }),
+        fetch(`${API_BASE}/dashboard/activity`, { headers }),
+        fetch(`${API_BASE}/dashboard/depth-distribution`, { headers }),
+        fetch(`${API_BASE}/dashboard/ts-sample`, { headers }),
       ]);
       const [stats, activity, depthDist, tsSample] = await Promise.all([
         statsRes.json(), activityRes.json(), depthRes.json(), tsRes.json()

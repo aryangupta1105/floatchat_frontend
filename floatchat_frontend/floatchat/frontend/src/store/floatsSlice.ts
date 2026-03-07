@@ -1,4 +1,5 @@
 import { createAsyncThunk, createSlice } from '@reduxjs/toolkit';
+import { API_BASE } from '../utils/api';
 
 export interface FloatRow {
   float_id: string;
@@ -33,7 +34,7 @@ export const fetchFloats = createAsyncThunk(
     }
     try {
       const token = localStorage.getItem('token');
-      const res = await fetch('/api/floats?limit=500', {
+      const res = await fetch(`${API_BASE}/floats?limit=500`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();

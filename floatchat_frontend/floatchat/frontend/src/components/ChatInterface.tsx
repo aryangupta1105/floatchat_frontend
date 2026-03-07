@@ -6,7 +6,7 @@ import SpeechRecognition, { useSpeechRecognition } from 'react-speech-recognitio
 import 'regenerator-runtime/runtime';
 import remarkGfm from 'remark-gfm';
 import { Language, useLanguage } from '../context/LanguageContext';
-import API from '../utils/api';
+import API, { API_BASE } from '../utils/api';
 import { translateToEnglish, translateToUserLang } from '../utils/translationService';
 import ARSimulationCard from './ARSimulationCard';
 import DataCard from './DataCard';
@@ -311,14 +311,14 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ darkMode, onShowVisualiza
     const rows = message.data?.rows;
     if (!rows?.length) { alert('No data available to download.'); return; }
     const floatId = rows[0]?.platform_number || rows[0]?.float_id || 'unknown';
-    window.open(`/api/data/download/csv?float_id=${floatId}`, '_blank');
+    window.open(`${API_BASE}/data/download/csv?float_id=${floatId}`, '_blank');
   };
 
   const handleDownloadNetcdf = (message: Message) => {
     const rows = message.data?.rows;
     if (!rows?.length) { alert('No data available to download.'); return; }
     const floatId = rows[0]?.platform_number || rows[0]?.float_id || 'unknown';
-    window.open(`/api/data/download/netcdf?float_id=${floatId}`, '_blank');
+    window.open(`${API_BASE}/data/download/netcdf?float_id=${floatId}`, '_blank');
   };
 
   const handleShowTrajectory = (message: Message) => {

@@ -115,7 +115,7 @@ export interface ProfilesQueryParams {
 // ─── RTK Query API ──────────────────────────────────────────────────────────
 
 const baseQuery = fetchBaseQuery({
-  baseUrl: '/api',
+  baseUrl: import.meta.env.VITE_API_URL || '/api',
   prepareHeaders: (headers) => {
     const token = localStorage.getItem('token');
     if (token) headers.set('Authorization', `Bearer ${token}`);

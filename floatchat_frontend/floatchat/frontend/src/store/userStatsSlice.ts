@@ -1,4 +1,5 @@
 import { createAsyncThunk, createSlice } from '@reduxjs/toolkit';
+import { API_BASE } from '../utils/api';
 
 export interface UserStats {
   total_users: number;
@@ -34,7 +35,7 @@ export const fetchUserStats = createAsyncThunk(
     }
     try {
       const token = localStorage.getItem('token');
-      const res = await fetch('/api/dashboard/user-stats', {
+      const res = await fetch(`${API_BASE}/dashboard/user-stats`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       return await res.json();
