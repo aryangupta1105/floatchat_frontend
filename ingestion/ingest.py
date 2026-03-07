@@ -46,7 +46,7 @@ except Exception:
 # ----------------------
 # Configuration
 # ----------------------
-DEFAULT_INSERT_BATCH = 500
+DEFAULT_INSERT_BATCH = 2000
 # DSN loaded from environment variable — never hardcode credentials
 # Prefer DATABASE_URL_PUBLIC (public proxy) for local dev; fall back to DATABASE_URL (Railway internal)
 DEFAULT_DSN = os.environ.get("DATABASE_URL_PUBLIC") or os.environ.get("DATABASE_URL") or os.environ.get("DATABASE_DSN") or ""
@@ -1167,8 +1167,12 @@ def upsert_core_levels(cur, profile, batch_size=DEFAULT_INSERT_BATCH):
         lon_val = profile.get("meta", {}).get("LONGITUDE")
         if isinstance(lat_val, (np.ndarray, list, tuple)):
             lat_val = float(np.array(lat_val).reshape(-1)[0])
+        elif lat_val is not None:
+            lat_val = float(lat_val)
         if isinstance(lon_val, (np.ndarray, list, tuple)):
             lon_val = float(np.array(lon_val).reshape(-1)[0])
+        elif lon_val is not None:
+            lon_val = float(lon_val)
     except Exception:
         lat_val = lon_val = None
     pres_variable = profile.get("pres_name")
@@ -1216,118 +1220,108 @@ def upsert_core_levels(cur, profile, batch_size=DEFAULT_INSERT_BATCH):
       sal_qc=EXCLUDED.sal_qc,
       raw_metadata=EXCLUDED.raw_metadata;
     """
+
+    # ── Pre-flatten all arrays ONCE (avoid np.array().reshape(-1) per-level) ──
+    def _flat(arr):
+        if arr is None:
+            return None
+        try:
+            return np.array(arr, dtype=float).reshape(-1)
+        except Exception:
+            return None
+
+    def _flat_qc(arr):
+        if arr is None:
+            return None
+        try:
+            return np.array(arr).reshape(-1)
+        except Exception:
+            return None
+
+    _pres   = _flat(PRES)
+    _depth  = _flat(DEPTH)
+    _tr     = _flat(TEMP_RAW)
+    _ta     = _flat(TEMP_ADJ)
+    _sr     = _flat(PSAL_RAW)
+    _sa     = _flat(PSAL_ADJ)
+    _pa     = _flat(PRES_ADJ)
+    _paerr  = _flat(PRES_ADJ_ERR)
+    _taerr  = _flat(TEMP_ADJ_ERR)
+    _saerr  = _flat(PSAL_ADJ_ERR)
+    _pqc    = _flat_qc(PRES_QC)
+    _tqc    = _flat_qc(TEMP_QC)
+    _sqc    = _flat_qc(PSAL_QC)
+    _paqc   = _flat_qc(PRES_ADJ_QC)
+    _taqc   = _flat_qc(TEMP_ADJ_QC)
+    _saqc   = _flat_qc(PSAL_ADJ_QC)
+
+    # Vectorised depth from pressure (once, not per-level)
+    _depth_from_pres = None
+    if _depth is None and _pres is not None and gsw is not None and lat_val is not None:
+        try:
+            _depth_from_pres = pressure_to_depth(_pres, latitude=lat_val)
+            if _depth_from_pres is not None:
+                _depth_from_pres = np.array(_depth_from_pres, dtype=float).reshape(-1)
+        except Exception:
+            _depth_from_pres = None
+
+    # Pre-compute constants used every row
+    _pk_str = str(pk)
+    _pv_str = str(pres_variable) if pres_variable is not None else None
+    _src_fname = str(profile.get("nc_filename")) if profile.get("nc_filename") is not None else None
+    _src_path = str(profile.get("nc_path")) if profile.get("nc_path") is not None else None
+    _empty_json = psycopg2.extras.Json({}) if psycopg2 is not None else {}
+
+    def _num(arr, i):
+        """Fast numeric extraction from pre-flattened array."""
+        if arr is not None and i < arr.size:
+            v = arr[i]
+            if np.isfinite(v):
+                return float(v)
+        return None
+
+    def _qc(arr, i):
+        """Fast QC extraction from pre-flattened array."""
+        if arr is not None and i < arr.size:
+            v = arr[i]
+            if isinstance(v, (bytes, np.bytes_)):
+                return v.decode("utf-8", errors="replace").strip()
+            return str(v)
+        return None
+
     rows = []
     written = 0
     for lvl in range(n_levels):
-        pres_v = None
-        try:
-            if PRES is not None and lvl < np.array(PRES).size:
-                pv = np.array(PRES).reshape(-1)[lvl]
-                if np.isfinite(pv):
-                    pres_v = float(pv)
-        except Exception:
-            pres_v = None
-        depth_v = None
-        try:
-            if DEPTH is not None and lvl < np.array(DEPTH).size:
-                dv = np.array(DEPTH).reshape(-1)[lvl]
-                if np.isfinite(dv):
-                    depth_v = float(dv)
-            if depth_v is None and pres_v is not None:
-                # compute depth per-level using gsw if available and lat exists
-                if gsw is None:
-                    depth_v = None
-                else:
-                    if lat_val is not None:
-                        try:
-                            darr = pressure_to_depth(np.array([pres_v]), latitude=lat_val)
-                            if darr is not None and darr.size > 0 and np.isfinite(darr[0]):
-                                depth_v = float(darr[0])
-                            else:
-                                depth_v = None
-                        except Exception:
-                            depth_v = None
-                    else:
-                        depth_v = None
-        except Exception:
-            depth_v = None
-        temp_raw_v = None
-        temp_adj_v = None
-        try:
-            if TEMP_RAW is not None and lvl < np.array(TEMP_RAW).size:
-                tv = np.array(TEMP_RAW).reshape(-1)[lvl]
-                if np.isfinite(tv):
-                    temp_raw_v = float(tv)
-            if TEMP_ADJ is not None and lvl < np.array(TEMP_ADJ).size:
-                tav = np.array(TEMP_ADJ).reshape(-1)[lvl]
-                if np.isfinite(tav):
-                    temp_adj_v = float(tav)
-            if temp_raw_v is None and temp_adj_v is not None:
-                temp_raw_v = temp_adj_v
-            if temp_adj_v is None and temp_raw_v is not None:
-                temp_adj_v = temp_raw_v
-        except Exception:
-            temp_raw_v = temp_adj_v = None
-        sal_raw_v = None
-        sal_adj_v = None
-        try:
-            if PSAL_RAW is not None and lvl < np.array(PSAL_RAW).size:
-                sv = np.array(PSAL_RAW).reshape(-1)[lvl]
-                if np.isfinite(sv):
-                    sal_raw_v = float(sv)
-            if PSAL_ADJ is not None and lvl < np.array(PSAL_ADJ).size:
-                sav = np.array(PSAL_ADJ).reshape(-1)[lvl]
-                if np.isfinite(sav):
-                    sal_adj_v = float(sav)
-            if sal_raw_v is None and sal_adj_v is not None:
-                sal_raw_v = sal_adj_v
-            if sal_adj_v is None and sal_raw_v is not None:
-                sal_adj_v = sal_raw_v
-        except Exception:
-            sal_raw_v = sal_adj_v = None
-        pres_qc_v = None
-        temp_qc_v = None
-        sal_qc_v = None
-        try:
-            if PRES_QC is not None and lvl < np.array(PRES_QC).size:
-                pv = np.array(PRES_QC).reshape(-1)[lvl]
-                pres_qc_v = pv.decode("utf-8", errors="replace").strip() if isinstance(pv, (bytes, np.bytes_)) else str(pv)
-        except Exception:
-            pres_qc_v = None
-        try:
-            if TEMP_QC is not None and lvl < np.array(TEMP_QC).size:
-                v = np.array(TEMP_QC).reshape(-1)[lvl]
-                temp_qc_v = v.decode("utf-8", errors="replace").strip() if isinstance(v, (bytes, np.bytes_)) else str(v)
-        except Exception:
-            temp_qc_v = None
-        try:
-            if PSAL_QC is not None and lvl < np.array(PSAL_QC).size:
-                v = np.array(PSAL_QC).reshape(-1)[lvl]
-                sal_qc_v = v.decode("utf-8", errors="replace").strip() if isinstance(v, (bytes, np.bytes_)) else str(v)
-        except Exception:
-            sal_qc_v = None
+        pres_v = _num(_pres, lvl)
 
-        # NEW: adjusted values, errors, adjusted QC
-        pres_adj_v = numeric_at(PRES_ADJ, lvl) if PRES_ADJ is not None else None
-        pres_adj_err_v = numeric_at(PRES_ADJ_ERR, lvl) if PRES_ADJ_ERR is not None else None
-        pres_adj_qc_v = qc_at(PRES_ADJ_QC, lvl) if PRES_ADJ_QC is not None else None
-        temp_adj_err_v = numeric_at(TEMP_ADJ_ERR, lvl) if TEMP_ADJ_ERR is not None else None
-        temp_adj_qc_v = qc_at(TEMP_ADJ_QC, lvl) if TEMP_ADJ_QC is not None else None
-        sal_adj_err_v = numeric_at(PSAL_ADJ_ERR, lvl) if PSAL_ADJ_ERR is not None else None
-        sal_adj_qc_v = qc_at(PSAL_ADJ_QC, lvl) if PSAL_ADJ_QC is not None else None
+        depth_v = _num(_depth, lvl)
+        if depth_v is None and pres_v is not None and _depth_from_pres is not None and lvl < _depth_from_pres.size:
+            dv = _depth_from_pres[lvl]
+            if np.isfinite(dv):
+                depth_v = float(dv)
 
-        raw_meta = {}
-        raw_meta_json = psycopg2.extras.Json(make_json_serializable(raw_meta)) if psycopg2 is not None else make_json_serializable(raw_meta)
+        temp_raw_v = _num(_tr, lvl)
+        temp_adj_v = _num(_ta, lvl)
+        if temp_raw_v is None and temp_adj_v is not None:
+            temp_raw_v = temp_adj_v
+        if temp_adj_v is None and temp_raw_v is not None:
+            temp_adj_v = temp_raw_v
+
+        sal_raw_v = _num(_sr, lvl)
+        sal_adj_v = _num(_sa, lvl)
+        if sal_raw_v is None and sal_adj_v is not None:
+            sal_raw_v = sal_adj_v
+        if sal_adj_v is None and sal_raw_v is not None:
+            sal_adj_v = sal_raw_v
+
         rows.append((
-            str(pk), int(lvl), pres_v, depth_v, lat_val, lon_val, str(pres_variable) if pres_variable is not None else None,
+            _pk_str, lvl, pres_v, depth_v, lat_val, lon_val, _pv_str,
             temp_raw_v, temp_adj_v, sal_raw_v, sal_adj_v,
-            pres_adj_v, pres_adj_err_v, pres_adj_qc_v,
-            temp_adj_err_v, temp_adj_qc_v,
-            sal_adj_err_v, sal_adj_qc_v,
-            pres_qc_v, temp_qc_v, sal_qc_v,
-            str(profile.get("nc_filename")) if profile.get("nc_filename") is not None else None,
-            str(profile.get("nc_path")) if profile.get("nc_path") is not None else None,
-            raw_meta_json
+            _num(_pa, lvl), _num(_paerr, lvl), _qc(_paqc, lvl),
+            _num(_taerr, lvl), _qc(_taqc, lvl),
+            _num(_saerr, lvl), _qc(_saqc, lvl),
+            _qc(_pqc, lvl), _qc(_tqc, lvl), _qc(_sqc, lvl),
+            _src_fname, _src_path, _empty_json
         ))
         if len(rows) >= batch_size:
             psycopg2.extras.execute_values(cur, insert_sql, rows, template=None, page_size=batch_size)
@@ -1360,8 +1354,12 @@ def upsert_bgc_levels(cur, profile, batch_size=DEFAULT_INSERT_BATCH):
         lon_val = profile.get("meta", {}).get("LONGITUDE")
         if isinstance(lat_val, (np.ndarray, list, tuple)):
             lat_val = float(np.array(lat_val).reshape(-1)[0])
+        elif lat_val is not None:
+            lat_val = float(lat_val)
         if isinstance(lon_val, (np.ndarray, list, tuple)):
             lon_val = float(np.array(lon_val).reshape(-1)[0])
+        elif lon_val is not None:
+            lon_val = float(lon_val)
     except Exception:
         lat_val = lon_val = None
     pres_variable = profile.get("pres_name")
@@ -1570,6 +1568,13 @@ def upsert_bgc_levels(cur, profile, batch_size=DEFAULT_INSERT_BATCH):
     _pres_flat = np.array(PRES).reshape(-1) if PRES is not None else None
     _depth_flat = np.array(DEPTH).reshape(-1) if DEPTH is not None else None
 
+    # Pre-compute constants used every row
+    _pk_str = str(pk)
+    _pv_str = str(pres_variable) if pres_variable is not None else None
+    _src_fname = str(profile.get("nc_filename")) if profile.get("nc_filename") is not None else None
+    _src_path = str(profile.get("nc_path")) if profile.get("nc_path") is not None else None
+    _empty_json = psycopg2.extras.Json({}) if psycopg2 is not None else {}
+
     for lvl in range(n_levels):
         pres_v = None
         try:
@@ -1657,10 +1662,8 @@ def upsert_bgc_levels(cur, profile, batch_size=DEFAULT_INSERT_BATCH):
         bbp_470_qc_v = qc_at(bbp470_qc_arr, lvl) if bbp470_qc_arr is not None else None
         bbp_532_qc_v = qc_at(bbp532_qc_arr, lvl) if bbp532_qc_arr is not None else None
 
-        raw_meta_json = psycopg2.extras.Json(make_json_serializable({})) if psycopg2 is not None else make_json_serializable({})
-
         rows.append((
-            str(pk), int(lvl), pres_v, depth_v, lat_val, lon_val, str(pres_variable) if pres_variable is not None else None,
+            _pk_str, lvl, pres_v, depth_v, lat_val, lon_val, _pv_str,
             doxy_v, doxy_qc_v, doxy_adj_v, doxy_adj_qc_v, doxy_dpres_v,
             doxy_adj_err_v, temp_doxy_v, temp_doxy_qc_v, bphase_doxy_v, bphase_doxy_qc_v,
             chla_v, chla_qc_v, chla_adj_v, chla_adj_qc_v, chla_dpres_v, chla_flu_v, chla_flu_qc_v,
@@ -1669,9 +1672,7 @@ def upsert_bgc_levels(cur, profile, batch_size=DEFAULT_INSERT_BATCH):
             cdom_v, cdom_qc_v,
             nitrate_v, nitrate_qc_v, nitrate_adj_v, nitrate_adj_qc_v, nitrate_adj_err_v,
             ph_v, ph_qc_v,
-            str(profile.get("nc_filename")) if profile.get("nc_filename") is not None else None,
-            str(profile.get("nc_path")) if profile.get("nc_path") is not None else None,
-            raw_meta_json
+            _src_fname, _src_path, _empty_json
         ))
         if len(rows) >= batch_size:
             psycopg2.extras.execute_values(cur, insert_sql, rows, template=None, page_size=batch_size)
@@ -1722,6 +1723,14 @@ def upsert_profile(conn, profile: Dict[str, Any], dry_run: bool=False, batch_siz
             rows_written = upsert_bgc_levels(cur, profile, batch_size=batch_size)
         else:
             rows_written = upsert_core_levels(cur, profile, batch_size=batch_size)
+        # Insert summary in same transaction (avoids second commit round-trip)
+        if AUTO_INSERT_SUMMARY:
+            try:
+                stats = compute_profile_stats(profile)
+                text = build_summary_text(pk, meta, stats)
+                insert_profile_summary(conn, pk, text, model_name=AUTO_SUMMARY_MODEL_NAME, summary_json=stats, cur=cur)
+            except Exception as e:
+                print(f"Warning: auto summary insertion failed: {e}")
         conn.commit()
         cur.close()
         return rows_written
@@ -1865,6 +1874,27 @@ def process_files(file_list: List[str], dsn: Optional[str], args, parse_only=Fal
                 print("Warning: could not connect to DB; switching to no-db. Error:", e)
                 conn = None
                 parse_only = True
+
+    def _ensure_conn():
+        """Return a live DB connection, reconnecting if needed."""
+        nonlocal conn
+        if conn is None or conn.closed:
+            try:
+                conn = connect_db(dsn)
+            except Exception as e:
+                print(f"Warning: DB reconnect failed: {e}")
+                conn = None
+        else:
+            try:
+                conn.cursor().execute("SELECT 1")
+            except Exception:
+                try:
+                    conn = connect_db(dsn)
+                except Exception as e:
+                    print(f"Warning: DB reconnect failed: {e}")
+                    conn = None
+        return conn
+
     for nc in file_list:
         start_t = time.time()
         try:
@@ -1892,6 +1922,8 @@ def process_files(file_list: List[str], dsn: Optional[str], args, parse_only=Fal
                         continue
                 except Exception as e:
                     print("Warning: could not check processed state, will attempt ingest. Error:", e)
+            if not parse_only and dsn:
+                conn = _ensure_conn()
             if parse_only or conn is None:
                 if write_parsed_csvs_for_inspection or args.verify:
                     PRES = profile.get("PRES")
@@ -1985,14 +2017,6 @@ def process_files(file_list: List[str], dsn: Optional[str], args, parse_only=Fal
                     print(f"Moved file to processed/: {dest_path}")
                 except Exception as e:
                     print("Warning: could not move processed file:", e)
-                if AUTO_INSERT_SUMMARY and not args.dry_run:
-                    try:
-                        stats = compute_profile_stats(profile)
-                        text = build_summary_text(pk, profile.get("meta", {}), stats)
-                        insert_profile_summary(conn, pk, text, model_name=AUTO_SUMMARY_MODEL_NAME, summary_json=stats)
-                        print("Inserted auto summary.")
-                    except Exception as e:
-                        print("Warning: auto summary insertion failed:", e)
                 if args.verify:
                     try:
                         parsed_csv_dir = os.path.join(BASE_DIR, "parsed_csvs")
@@ -2086,15 +2110,18 @@ def verify_against_db(conn, profile, out_csv: Optional[str] = None, tolerances: 
         df.to_csv(out_csv, index=False)
     return summary, df
 
-def insert_profile_summary(conn, profile_key: str, summary_text: str, model_name: str = AUTO_SUMMARY_MODEL_NAME, summary_json: Optional[Dict]=None):
+def insert_profile_summary(conn, profile_key: str, summary_text: str, model_name: str = AUTO_SUMMARY_MODEL_NAME, summary_json: Optional[Dict]=None, cur=None):
     if conn is None:
         raise RuntimeError("DB connection required.")
-    cur = conn.cursor()
+    _own_cur = cur is None
+    if _own_cur:
+        cur = conn.cursor()
     sj = psycopg2.extras.Json(make_json_serializable(summary_json)) if (psycopg2 is not None and summary_json is not None) else make_json_serializable(summary_json)
     cur.execute("DELETE FROM profile_summaries WHERE profile_key = %s AND model_name = %s", (str(profile_key), model_name))
     cur.execute("INSERT INTO profile_summaries (profile_key, model_name, summary_text, summary_json) VALUES (%s,%s,%s,%s)", (str(profile_key), model_name, summary_text, sj))
-    conn.commit()
-    cur.close()
+    if _own_cur:
+        conn.commit()
+        cur.close()
 
 def compute_profile_stats(profile):
     def arr_stats(arr):
