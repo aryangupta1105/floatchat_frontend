@@ -6,14 +6,13 @@ const app = require("./app");
 const { logger } = require("./utils/logger");
 const { startSchedulers } = require("./schedulers");
 const { pool } = require("./config/db");
-const { connectMongoDB } = require("./config/mongodb");
-
 const PORT = process.env.PORT || 5000;
 
 const startServer = async () => {
   try {
-    // Connect to MongoDB
-    await connectMongoDB();
+    // Verify PostgreSQL connection
+    await pool.query("SELECT 1");
+    logger.info("PostgreSQL connected");
 
     const server = http.createServer(app);
 

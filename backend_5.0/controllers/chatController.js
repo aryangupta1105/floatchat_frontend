@@ -25,10 +25,13 @@ const processQuery = async (req, res, next) => {
 
     logger.info(`📩 Received question: "${question}"`);
 
+    // Fetch recent conversation context for this user
+    const chatHistory = await ChatHistory.getRecentContext(userId, 5);
+
     // =====================================================
     //  STEP 1 — Let orchestrator fully handle classification + data flow
     // =====================================================
-    const result = await queryOrchestrator.processQuery(question, mode);
+    const result = await queryOrchestrator.processQuery(question, mode, chatHistory);
 
     // result:
     // {
@@ -42,38 +45,88 @@ const processQuery = async (req, res, next) => {
     const durationMs = Date.now() - startedAt;
 
     // =====================================================
-    //  STEP 2 — Save history (non-blocking)
+    //  STEP 2a — Chat/conceptual responses: no data, no visualization
+    // =====================================================
+    if (result.type === "chat") {
+      try {
+        await ChatHistory.create({
+          userId, question, type: "chat", sql: null,
+          answer: result.answer, rows: 0, status: "completed",
+          durationMs, responseData: null, visualizationType: null
+        });
+      } catch (err) {
+        logger.warn("⚠ Failed to save chat history:", err.message);
+      }
+      return res.json({
+        ok: true,
+        content: result.answer || "No answer available.",
+        hasVisualization: false,
+        hasAR: false,
+        visualizationType: null,
+        data: null,
+        meta: { durationMs, error: null }
+      });
+    }
+
+    // =====================================================
+    //  STEP 2b — Build response data for data queries
+    // =====================================================
+    const rows = result.raw_rows || [];
+    if (rows.length > 0) {
+      logger.info(`Row columns: [${Object.keys(rows[0]).join(", ")}] | first row sample: ${JSON.stringify(rows[0]).substring(0, 200)}`);
+    }
+    const hasVisualization = rows.length > 0;
+    let visualizationType = null;
+    if (hasVisualization) {
+      const r = rows[0];
+      if (r?.latitude != null && r?.longitude != null && r?.depth == null) {
+        visualizationType = "map";
+      } else if (r?.depth != null) {
+        visualizationType = "profile";
+      } else if (r?.juld != null || r?.profile_date != null) {
+        visualizationType = "timeseries";
+      } else {
+        visualizationType = "table";
+      }
+    }
+
+    const responseData = hasVisualization ? {
+      rows: rows.slice(0, 100),
+      sql: result.sql || null,
+      rowCount: rows.length
+    } : null;
+
+    // =====================================================
+    //  STEP 3 — Save history with full response data
     // =====================================================
     try {
       await ChatHistory.create({
         userId,
         question,
         type: result.type,
-        sql: result.sql || null,          // ← SQL saved exactly as RAG gave it
+        sql: result.sql || null,
         answer: result.answer,
         rows: result.raw_rows?.length || 0,
         status: result.error ? "error" : "completed",
-        durationMs
+        durationMs,
+        responseData,
+        visualizationType
       });
     } catch (err) {
       logger.warn("⚠ Failed to save chat history:", err.message);
     }
 
     // =====================================================
-    //  STEP 3 — Return response to frontend
+    //  STEP 4 — Return response to frontend
     // =====================================================
-    return success(res, {
+    return res.json({
       ok: true,
-      question,
-      type: result.type,
-      answer: result.answer,
-      sql: result.sql || null,            // ← NO MODIFICATION
-      rows: result.raw_rows || [],
-      rowCount: result.raw_rows?.length || 0,
-      meta: {
-        durationMs,
-        error: result.error || null
-      }
+      content: result.answer || "No answer available.",
+      hasVisualization,
+      hasAR: false,
+      visualizationType,
+      data: responseData,
+      meta: { durationMs, error: result.error || null }
     });
 
   } catch (err) {

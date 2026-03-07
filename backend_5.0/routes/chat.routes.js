@@ -5,7 +5,8 @@ const { requireAuth } = require("../middlewares/authMiddleware");
 
 const router = express.Router();
 
-router.post("/query", requireAuth, chatController.processQuery);
-router.get("/history", requireAuth, chatController.getHistory);
+router.post("/process", requireAuth, chatController.processQuery);
+router.post("/query",   requireAuth, chatController.processQuery);
+router.get("/history",  requireAuth, chatController.getHistory);
 
 module.exports = router;

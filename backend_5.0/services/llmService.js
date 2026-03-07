@@ -96,10 +96,24 @@ const generateSql = async ({ question, ragContext }) => {
   const prompt = buildSqlPrompt({ question, ragContext });
   let raw = await callLlm({ prompt });
 
-  // If the model returns ```sql ... ``` or ``` ... ```
-  raw = raw.replace(/^```sql/i, "").replace(/^```/i, "").replace(/```$/i, "").trim();
+  // Strip markdown code fences
+  raw = raw.replace(/```sql\s*/gi, "").replace(/```\s*/gi, "").trim();
 
-  return raw;
+  // If LLM returned multiple statements (user sent multiple questions at once),
+  // extract only the FIRST SELECT statement to avoid SqlValidationError
+  if (raw.includes(";")) {
+    // Split on semicolons, find the first non-empty SELECT statement
+    const statements = raw.split(";").map(s => s.trim()).filter(s => s.length > 0);
+    const firstSelect = statements.find(s => s.toUpperCase().startsWith("SELECT"));
+    if (firstSelect) {
+      raw = firstSelect;
+    } else {
+      // No SELECT found — take the first statement anyway
+      raw = statements[0];
+    }
+  }
+
+  return raw.trim();
 };
 
 /**
