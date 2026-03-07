@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from 'react';
-import axios from 'axios';
-import Plot from 'react-plotly.js';
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { MapContainer, Marker, Popup, TileLayer } from 'react-leaflet';
+import Plot from 'react-plotly.js';
+import { apiSlice, useGetFloatsQuery } from '../store/apiSlice';
+import FloatTrajectory from './visualizations/FloatTrajectory';
 
 interface ExplorerProps {
   darkMode: boolean;
@@ -37,19 +38,27 @@ const Explorer: React.FC<ExplorerProps> = ({ darkMode }) => {
   const [minDepth, setMinDepth] = useState<number>(0);
   const [maxDepth, setMaxDepth] = useState<number>(2000);
 
+  // RTK Query: seed floats from cache (same cache Dashboard uses), lazy queries for on-demand
+  const { data: cachedFloats = [] } = useGetFloatsQuery();
+  const [triggerFetchFloats, floatsQuery] = apiSlice.useLazyGetFloatsQuery();
+  const [triggerFetchProfiles, profilesQuery] = apiSlice.useLazyGetProfilesQuery();
+
   // Data state
   const [floats, setFloats] = useState<any[]>([]);
   const [selectedFloat, setSelectedFloat] = useState<any | null>(null);
   const [profileData, setProfileData] = useState<any | null>(null);
 
   // Loading / error
-  const [loadingFloats, setLoadingFloats] = useState(false);
-  const [loadingProfile, setLoadingProfile] = useState(false);
+  const loadingFloats = floatsQuery.isFetching;
+  const loadingProfile = profilesQuery.isFetching;
   const [error, setError] = useState('');
 
   // Manual search state
   const [searchId, setSearchId] = useState('');
   const [searchError, setSearchError] = useState('');
+
+  // Visualization tab: 'profile' | 'trajectory' | 'ts'
+  const [vizTab, setVizTab] = useState<'profile' | 'trajectory' | 'ts'>('profile');
 
   // Has the user clicked Apply Filters or Search yet?
   const [hasInteracted, setHasInteracted] = useState(false);
@@ -62,56 +71,43 @@ const Explorer: React.FC<ExplorerProps> = ({ darkMode }) => {
       ? 'Temperature (°C)'
       : parameter === 'salinity'
       ? 'Salinity (psu)'
-      : parameter.charAt(0).toUpperCase() + parameter.slice(1);
+      : (parameter as string).charAt(0).toUpperCase() + (parameter as string).slice(1);
 
-  // Fetch PROFILES for a specific float
-  const fetchProfilesForFloat = async (floatObj: any) => {
+  // Fetch PROFILES for a specific float (RTK Query lazy)
+  const fetchProfilesForFloat = useCallback(async (floatObj: any) => {
     if (!floatObj) return;
+    setError('');
+    setSelectedFloat(floatObj);
     try {
-      setError('');
-      setLoadingProfile(true);
-      setSelectedFloat(floatObj);
-
-      const res = await axios.get('/api/profiles', {
-        params: {
-          float_id: floatObj.float_id,
-          parameter,
-          start_date: startDate,
-          end_date: endDate,
-          min_depth: minDepth,
-          max_depth: maxDepth
-        }
-      });
-
-      setProfileData(res.data || null);
-    } catch (err) {
-      console.error(err);
+      const result = await triggerFetchProfiles({
+        float_id: floatObj.float_id,
+        parameter,
+        start_date: startDate,
+        end_date: endDate,
+        min_depth: minDepth,
+        max_depth: maxDepth
+      }).unwrap();
+      setProfileData(result || null);
+    } catch {
       setError('Failed to load profiles for this float.');
       setProfileData(null);
-    } finally {
-      setLoadingProfile(false);
     }
-  };
+  }, [triggerFetchProfiles, parameter, startDate, endDate, minDepth, maxDepth]);
 
-  // Fetch FLOATS list based on filters
-  const fetchFloats = async (triggerProfiles = false) => {
+  // Fetch FLOATS list based on filters (RTK Query lazy)
+  const fetchFloats = useCallback(async (triggerProfiles = false) => {
+    setError('');
+    setSearchError('');
     try {
-      setError('');
-      setSearchError('');
-      setLoadingFloats(true);
-
-      const res = await axios.get('/api/floats', {
-        params: {
-          region,
-          parameter,
-          start_date: startDate,
-          end_date: endDate,
-          min_depth: minDepth,
-          max_depth: maxDepth
-        }
-      });
-
-      const normalized = normalizeFloatsResponse(res.data);
+      const result = await triggerFetchFloats({
+        region,
+        parameter,
+        start_date: startDate,
+        end_date: endDate,
+        min_depth: minDepth,
+        max_depth: maxDepth
+      }).unwrap();
+      const normalized = Array.isArray(result) ? result : [];
       setFloats(normalized);
 
       if (triggerProfiles && normalized.length > 0) {
@@ -120,16 +116,13 @@ const Explorer: React.FC<ExplorerProps> = ({ darkMode }) => {
         setSelectedFloat(null);
         setProfileData(null);
       }
-    } catch (err) {
-      console.error(err);
+    } catch {
       setError('Failed to load floats. Please try again.');
       setFloats([]);
       setSelectedFloat(null);
       setProfileData(null);
-    } finally {
-      setLoadingFloats(false);
     }
-  };
+  }, [triggerFetchFloats, fetchProfilesForFloat, region, parameter, startDate, endDate, minDepth, maxDepth]);
 
   // Manual search handler
   const handleSearchFloat = async () => {
@@ -165,12 +158,15 @@ const Explorer: React.FC<ExplorerProps> = ({ darkMode }) => {
     await fetchProfilesForFloat(found);
   };
 
+  // Seed local floats from RTK Query cache on mount (same cache Dashboard uses)
   useEffect(() => {
-    // Intentionally empty – user must click Apply Filters or Search first.
-  }, []);
+    if (cachedFloats.length > 0 && floats.length === 0) {
+      setFloats(cachedFloats as any[]);
+    }
+  }, [cachedFloats]);
 
-  // Build traces for profile plot
-  const buildProfileTraces = () => {
+  // Build traces for profile plot (memoized)
+  const profileTraces = useMemo(() => {
     if (!profileData || !Array.isArray(profileData.profiles)) return [];
     return profileData.profiles.map((profile: any) => ({
       x: profile.values,
@@ -179,7 +175,61 @@ const Explorer: React.FC<ExplorerProps> = ({ darkMode }) => {
       name: profile.label || 'profile',
       line: { shape: 'spline' }
     }));
-  };
+  }, [profileData]);
+
+  // Stable Plotly config + style objects (avoids re-creating on every render)
+  const plotlyConfig = useMemo(() => ({ responsive: true, displayModeBar: false } as const), []);
+  const plotlyStyle = useMemo(() => ({ width: '100%', height: '100%' }), []);
+
+  const profileLayout = useMemo(() => ({
+    title: '',
+    xaxis: { title: parameterLabel, zeroline: false },
+    yaxis: { title: 'Depth (m)', autorange: 'reversed' as const, zeroline: false },
+    paper_bgcolor: 'rgba(0,0,0,0)',
+    plot_bgcolor: 'rgba(0,0,0,0)',
+    font: { color: darkMode ? '#e5e7eb' : '#111827', size: 10 },
+    margin: { t: 20, r: 20, b: 40, l: 50 },
+    legend: { orientation: 'h' as const, x: 0, y: 1.1, font: { size: 9 } }
+  }), [darkMode, parameterLabel]);
+
+  const tsLayout = useMemo(() => ({
+    title: '',
+    xaxis: { title: 'Salinity (psu)', zeroline: false },
+    yaxis: { title: 'Temperature (\u00b0C)', zeroline: false },
+    paper_bgcolor: 'rgba(0,0,0,0)',
+    plot_bgcolor: 'rgba(0,0,0,0)',
+    font: { color: darkMode ? '#e5e7eb' : '#111827', size: 10 },
+    margin: { t: 20, r: 30, b: 40, l: 50 },
+    showlegend: false,
+  }), [darkMode]);
+
+  // Memoize T-S traces
+  const tsTraces = useMemo(() => {
+    if (!profileData?.profiles?.length) return [];
+    return profileData.profiles.map((p: any, i: number) => ({
+      x: p.salinities?.filter((_: any, j: number) => p.temperatures?.[j] != null) || [],
+      y: p.temperatures?.filter((t: any) => t != null) || [],
+      mode: 'markers',
+      type: 'scatter' as const,
+      name: p.label || `Profile ${i + 1}`,
+      marker: {
+        size: 4,
+        opacity: 0.7,
+        color: p.depths?.filter((_: any, j: number) => p.temperatures?.[j] != null) || [],
+        colorscale: 'Viridis',
+        reversescale: true,
+        ...(i === 0 ? {
+          colorbar: {
+            title: { text: 'Depth (m)', font: { size: 9 } },
+            thickness: 10,
+            len: 0.7,
+            tickfont: { size: 8 },
+          }
+        } : {}),
+      },
+      hovertemplate: 'Sal: %{x:.2f}<br>Temp: %{y:.2f} \u00b0C<extra>' + (p.label || '') + '</extra>',
+    }));
+  }, [profileData]);
 
   // Shared color classes for dark / light mode
   const cardBase =
@@ -354,29 +404,54 @@ const Explorer: React.FC<ExplorerProps> = ({ darkMode }) => {
               </span>
             </div>
 
-            <div className="flex gap-2 text-xs">
-              <input
-                type="text"
-                value={searchId}
-                onChange={e => setSearchId(e.target.value)}
-                placeholder="e.g. 2903320"
-                className={`flex-1 rounded-lg border px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500/40 ${
-                  darkMode
-                    ? 'bg-gray-900 border-gray-700 text-gray-100 placeholder-gray-500'
-                    : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'
-                }`}
-              />
-              <button
-                type="button"
-                onClick={handleSearchFloat}
-                className={`rounded-lg px-3 py-1.5 text-xs font-semibold shadow transition ${
-                  darkMode
-                    ? 'bg-emerald-500 text-gray-900 hover:bg-emerald-400'
-                    : 'bg-emerald-500 text-white hover:bg-emerald-400'
-                }`}
-              >
-                Go
-              </button>
+            <div className="space-y-2 text-xs">
+              {/* Dropdown — populated from loaded floats */}
+              {floats.length > 0 && (
+                <select
+                  value={searchId}
+                  onChange={e => setSearchId(e.target.value)}
+                  className={`w-full rounded-lg border px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500/40 ${
+                    darkMode
+                      ? 'bg-gray-900 border-gray-700 text-gray-100'
+                      : 'bg-white border-gray-300 text-gray-900'
+                  }`}
+                >
+                  <option value="">— Select a float ID —</option>
+                  {floats.map((f: any) => (
+                    <option key={f.float_id} value={String(f.float_id)}>
+                      {f.float_id}{f.last_profile_date ? ` · ${f.last_profile_date.slice(0,10)}` : ''}
+                    </option>
+                  ))}
+                </select>
+              )}
+
+              {/* Manual text input */}
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={searchId}
+                  onChange={e => setSearchId(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleSearchFloat()}
+                  placeholder={loadingFloats ? 'Loading floats…' : 'e.g. 1900064'}
+                  className={`flex-1 rounded-lg border px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500/40 ${
+                    darkMode
+                      ? 'bg-gray-900 border-gray-700 text-gray-100 placeholder-gray-500'
+                      : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'
+                  }`}
+                />
+                <button
+                  type="button"
+                  onClick={handleSearchFloat}
+                  disabled={!searchId.trim()}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold shadow transition disabled:opacity-50 disabled:cursor-not-allowed ${
+                    darkMode
+                      ? 'bg-emerald-500 text-gray-900 hover:bg-emerald-400'
+                      : 'bg-emerald-500 text-white hover:bg-emerald-400'
+                  }`}
+                >
+                  Go
+                </button>
+              </div>
             </div>
             {searchError && (
               <p className="mt-1 text-[11px] text-red-400">{searchError}</p>
@@ -514,7 +589,7 @@ const Explorer: React.FC<ExplorerProps> = ({ darkMode }) => {
             >
               Region:&nbsp;
               <span className="font-semibold capitalize">
-                {region.replaceAll('_', ' ')}
+                {region.replace(/_/g, ' ')}
               </span>
             </div>
             <div
@@ -540,28 +615,34 @@ const Explorer: React.FC<ExplorerProps> = ({ darkMode }) => {
                   : 'bg-white border-gray-200 text-gray-900'
               }`}
             >
+              {/* Visualization tabs */}
               <div
-                className={`flex items-center justify-between px-4 py-2 border-b ${
+                className={`flex items-center gap-0 px-4 pt-2 border-b ${
                   darkMode ? 'border-gray-700' : 'border-gray-200'
                 }`}
               >
-                <div>
-                  <h3 className="text-sm font-semibold flex items-center gap-2">
-                    {selectedFloat
-                      ? `Profiles · Float ${selectedFloat.float_id}`
-                      : 'Profiles'}
-                    <span className="inline-flex items-center rounded-full bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium text-blue-500 border border-blue-500/30">
-                      {parameterLabel}
-                    </span>
-                  </h3>
-                  <p className={`text-[11px] ${subtleText}`}>
-                    {selectedFloat
-                      ? 'Depth-resolved measurements across selected time window.'
-                      : 'Apply filters or search by float ID to load vertical profiles.'}
-                  </p>
-                </div>
+                {[
+                  { id: 'profile' as const, label: 'Depth Profile' },
+                  { id: 'trajectory' as const, label: 'Trajectory Map' },
+                  { id: 'ts' as const, label: 'T-S Diagram' },
+                ].map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setVizTab(tab.id)}
+                    className={`px-3 py-1.5 text-[11px] font-medium border-b-2 transition-colors ${
+                      vizTab === tab.id
+                        ? 'border-blue-500 text-blue-500'
+                        : `border-transparent ${
+                            darkMode ? 'text-gray-400 hover:text-gray-200' : 'text-gray-500 hover:text-gray-900'
+                          }`
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+                <div className="flex-1" />
                 {loadingProfile && (
-                  <span className="inline-flex items-center gap-1 text-[11px] text-blue-400">
+                  <span className="inline-flex items-center gap-1 text-[11px] text-blue-400 pr-1">
                     <span className="h-2 w-2 rounded-full bg-blue-400 animate-pulse" />
                     Loading…
                   </span>
@@ -569,68 +650,88 @@ const Explorer: React.FC<ExplorerProps> = ({ darkMode }) => {
               </div>
 
               <div className="flex-1 p-3">
-                {!loadingProfile && !selectedFloat && (
-                  <div className="h-full flex items-center justify-center">
-                    <p className={`text-[12px] text-center max-w-xs ${subtleText}`}>
-                      👈 Choose a float from the table or map, or search by ID to
-                      see vertical profiles of{' '}
-                      <span className="font-semibold">{parameterLabel}</span>.
-                    </p>
-                  </div>
+                {/* PROFILE TAB */}
+                {vizTab === 'profile' && (
+                  <>
+                    {!loadingProfile && !selectedFloat && (
+                      <div className="h-full flex items-center justify-center">
+                        <p className={`text-[12px] text-center max-w-xs ${subtleText}`}>
+                          Choose a float from the table or map, or search by ID to
+                          see vertical profiles of{' '}
+                          <span className="font-semibold">{parameterLabel}</span>.
+                        </p>
+                      </div>
+                    )}
+
+                    {!loadingProfile && selectedFloat && profileData && (
+                      <div className="h-full">
+                        <Plot
+                          data={profileTraces}
+                          layout={profileLayout}
+                          style={plotlyStyle}
+                          config={plotlyConfig}
+                        />
+                      </div>
+                    )}
+
+                    {!loadingProfile && selectedFloat && !profileData && (
+                      <div className="h-full flex items-center justify-center">
+                        <p className={`text-[12px] ${subtleText}`}>
+                          No profile data returned for this float in the selected filters.
+                        </p>
+                      </div>
+                    )}
+
+                    {loadingProfile && (
+                      <div className="h-full flex items-center justify-center">
+                        <div className="flex flex-col items-center gap-2">
+                          <div className="h-8 w-8 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
+                          <p className={`text-[11px] ${subtleText}`}>
+                            Fetching profile curves…
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </>
                 )}
 
-                {!loadingProfile && selectedFloat && profileData && (
-                  <div className="h-full">
-                    <Plot
-                      data={buildProfileTraces()}
-                      layout={{
-                        title: '',
-                        xaxis: {
-                          title: parameterLabel,
-                          zeroline: false
-                        },
-                        yaxis: {
-                          title: 'Depth (m)',
-                          autorange: 'reversed',
-                          zeroline: false
-                        },
-                        paper_bgcolor: 'rgba(0,0,0,0)',
-                        plot_bgcolor: 'rgba(0,0,0,0)',
-                        font: {
-                          color: darkMode ? '#e5e7eb' : '#111827',
-                          size: 10
-                        },
-                        margin: { t: 20, r: 20, b: 40, l: 50 },
-                        legend: {
-                          orientation: 'h',
-                          x: 0,
-                          y: 1.1,
-                          font: { size: 9 }
-                        }
-                      }}
-                      style={{ width: '100%', height: '100%' }}
-                      config={{ responsive: true, displayModeBar: false }}
-                    />
-                  </div>
+                {/* TRAJECTORY TAB */}
+                {vizTab === 'trajectory' && (
+                  <>
+                    {selectedFloat ? (
+                      <FloatTrajectory floatId={selectedFloat.float_id} darkMode={darkMode} />
+                    ) : (
+                      <div className="h-full flex items-center justify-center">
+                        <p className={`text-[12px] text-center max-w-xs ${subtleText}`}>
+                          Select a float to see its trajectory across ocean cycles.
+                        </p>
+                      </div>
+                    )}
+                  </>
                 )}
 
-                {!loadingProfile && selectedFloat && !profileData && (
-                  <div className="h-full flex items-center justify-center">
-                    <p className={`text-[12px] ${subtleText}`}>
-                      No profile data returned for this float in the selected filters.
-                    </p>
-                  </div>
-                )}
-
-                {loadingProfile && (
-                  <div className="h-full flex items-center justify-center">
-                    <div className="flex flex-col items-center gap-2">
-                      <div className="h-8 w-8 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
-                      <p className={`text-[11px] ${subtleText}`}>
-                        Fetching profile curves…
-                      </p>
-                    </div>
-                  </div>
+                {/* T-S DIAGRAM TAB */}
+                {vizTab === 'ts' && (
+                  <>
+                    {!loadingProfile && selectedFloat && profileData && profileData.profiles?.length > 0 ? (
+                      <div className="h-full">
+                        <Plot
+                          data={tsTraces}
+                          layout={tsLayout}
+                          style={plotlyStyle}
+                          config={plotlyConfig}
+                        />
+                      </div>
+                    ) : (
+                      <div className="h-full flex items-center justify-center">
+                        <p className={`text-[12px] text-center max-w-xs ${subtleText}`}>
+                          {selectedFloat
+                            ? 'Load profiles first (via Depth Profile tab) to view the T-S diagram.'
+                            : 'Select a float to see its Temperature-Salinity diagram.'}
+                        </p>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </div>

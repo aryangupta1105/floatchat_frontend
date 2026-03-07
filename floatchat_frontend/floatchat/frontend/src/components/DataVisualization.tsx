@@ -1,20 +1,23 @@
-import React from 'react';
 import { motion } from 'framer-motion';
-import { BarChart3, MapPin, TrendingUp, Waves, Thermometer, Droplets } from 'lucide-react';
+import { BarChart3, Droplets, MapPin, Thermometer, Waves, X } from 'lucide-react';
+import React from 'react';
+import Plot from 'react-plotly.js';
 import { VisualizationOptions } from './ChatInterface';
 
-import SpatialMap from './visualizations/SpatialMap';
-import ProfilePlot from './visualizations/ProfilePlot';
-import TimeSeriesPlot from './visualizations/TimeSeriesPlot';
-import ComparisonPlot from './visualizations/ComparisonPlot';
 import AsciiTable from './visualizations/AsciiTable';
+import ComparisonPlot from './visualizations/ComparisonPlot';
+import FloatTrajectory from './visualizations/FloatTrajectory';
+import ProfilePlot from './visualizations/ProfilePlot';
+import SpatialMap from './visualizations/SpatialMap';
+import TimeSeriesPlot from './visualizations/TimeSeriesPlot';
 
 interface DataVisualizationProps {
   darkMode: boolean;
   vizOptions: VisualizationOptions | null;
+  onClose?: () => void;
 }
 
-const DataVisualization: React.FC<DataVisualizationProps> = ({ darkMode, vizOptions }) => {
+const DataVisualization: React.FC<DataVisualizationProps> = ({ darkMode, vizOptions, onClose }) => {
   // Decide what to render
   const renderContent = () => {
     if (!vizOptions) {
@@ -45,6 +48,84 @@ const DataVisualization: React.FC<DataVisualizationProps> = ({ darkMode, vizOpti
       case 'table':
         return <AsciiTable data={vizOptions.sourceMessage.data} />;
 
+      case 'trajectory': {
+        const rows = vizOptions.sourceMessage.data?.rows;
+        const floatId = rows?.[0]?.platform_number || rows?.[0]?.float_id || '';
+        if (!floatId) {
+          return (
+            <div className="h-full flex items-center justify-center text-sm text-gray-400">
+              No float ID found in message data to show trajectory.
+            </div>
+          );
+        }
+        return <FloatTrajectory floatId={floatId} darkMode={darkMode} />;
+      }
+
+      case 'ts': {
+        const tsRows = vizOptions.sourceMessage.data?.rows;
+        if (!tsRows?.length) {
+          return (
+            <div className="h-full flex items-center justify-center text-sm text-gray-400">
+              No temperature/salinity data available in this message.
+            </div>
+          );
+        }
+        const temps = tsRows.map((r: any) => r.temperature_adjusted ?? r.temperature).filter((v: any) => v != null);
+        const sals = tsRows.map((r: any) => r.salinity_adjusted ?? r.salinity).filter((v: any) => v != null);
+        const depths = tsRows.map((r: any) => r.depth).filter((v: any) => v != null);
+        if (temps.length === 0 || sals.length === 0) {
+          return (
+            <div className="h-full flex items-center justify-center text-sm text-gray-400">
+              Temperature or salinity data missing for T-S diagram.
+            </div>
+          );
+        }
+        return (
+          <Plot
+            data={[{
+              x: sals,
+              y: temps,
+              mode: 'markers',
+              type: 'scatter',
+              marker: {
+                color: depths.length > 0 ? depths : '#3b82f6',
+                colorscale: 'Viridis',
+                reversescale: true,
+                size: 5,
+                opacity: 0.7,
+                ...(depths.length > 0 ? {
+                  colorbar: {
+                    title: { text: 'Depth (m)', font: { size: 10 } },
+                    thickness: 12,
+                    len: 0.8,
+                    tickfont: { size: 9 },
+                  }
+                } : {}),
+              },
+              hovertemplate: 'Sal: %{x:.2f} psu<br>Temp: %{y:.2f} \u00b0C<extra></extra>',
+            }]}
+            layout={{
+              paper_bgcolor: 'transparent',
+              plot_bgcolor: 'transparent',
+              font: { color: darkMode ? '#e5e7eb' : '#111827', size: 11 },
+              margin: { t: 10, r: 30, b: 50, l: 60 },
+              xaxis: {
+                title: 'Salinity (psu)',
+                gridcolor: darkMode ? '#374151' : '#e5e7eb',
+                showgrid: true,
+              },
+              yaxis: {
+                title: 'Temperature (\u00b0C)',
+                gridcolor: darkMode ? '#374151' : '#e5e7eb',
+                showgrid: true,
+              },
+            }}
+            style={{ width: '100%', height: '100%' }}
+            config={{ displayModeBar: false, responsive: true }}
+          />
+        );
+      }
+
       default:
         return null;
     }
@@ -55,15 +136,19 @@ const DataVisualization: React.FC<DataVisualizationProps> = ({ darkMode, vizOpti
     profile: 'Vertical Profile – Depth vs Parameter',
     timeseries: 'Time Series – Parameter Evolution',
     comparison: 'Comparison – Multiple Profiles/Floats',
-    table: 'ASCII / Tabular Summaries'
+    table: 'ASCII / Tabular Summaries',
+    trajectory: 'Float Trajectory – Cycle Movement',
+    ts: 'Temperature-Salinity Diagram'
   };
 
   const subtitleByType: Record<string, string> = {
-    map: 'Mock spatial distribution of ARGO floats using Leaflet.',
-    profile: 'Mock salinity profile using depth vs salinity.',
-    timeseries: 'Mock SST evolution over time for a region.',
-    comparison: 'Mock comparison of two temperature profiles.',
-    table: 'Mock ASCII view of cycle/depth/parameter values.'
+    map: 'Spatial distribution of ARGO floats on an interactive map.',
+    profile: 'Depth-resolved vertical profile from your database.',
+    timeseries: 'Parameter evolution over time for a region.',
+    comparison: 'Side-by-side comparison of multiple profiles.',
+    table: 'Tabular view of cycle/depth/parameter values.',
+    trajectory: 'Float movement across cycles shown on an interactive map.',
+    ts: 'Temperature vs Salinity scatter colored by depth.'
   };
 
   const currentType = vizOptions?.type ?? 'map';
@@ -114,6 +199,22 @@ const DataVisualization: React.FC<DataVisualizationProps> = ({ darkMode, vizOpti
             <Waves className="w-3 h-3 text-emerald-400" />
             <span className={darkMode ? 'text-gray-300' : 'text-gray-700'}>Profiles</span>
           </div>
+
+          {onClose && (
+            <motion.button
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.9 }}
+              onClick={onClose}
+              className={`ml-2 p-1.5 rounded-lg transition-colors ${
+                darkMode
+                  ? 'hover:bg-gray-600 text-gray-400 hover:text-white'
+                  : 'hover:bg-gray-200 text-gray-500 hover:text-gray-900'
+              }`}
+              title="Close visualization"
+            >
+              <X className="w-4 h-4" />
+            </motion.button>
+          )}
         </div>
       </div>
 

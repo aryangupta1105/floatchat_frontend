@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Waves, User, Moon, Sun, LogOut, Settings } from 'lucide-react';
+import { LogOut, Moon, Settings, Sun, User, Waves } from 'lucide-react';
+import React, { useState } from 'react';
 
 interface HeaderProps {
   user: any;
@@ -13,16 +13,13 @@ const Header: React.FC<HeaderProps> = ({ user, onLogout, darkMode, setDarkMode }
   const [showUserMenu, setShowUserMenu] = useState(false);
 
   return (
-    <motion.header
-      initial={{ y: -20, opacity: 0 }}
-      animate={{ y: 0, opacity: 1 }}
-      transition={{ duration: 0.6 }}
-      className={`fixed top-0 left-0 right-0 z-50 ${
-        darkMode ? 'bg-gray-800/95 border-gray-700' : 'bg-white/95 border-gray-200'
-      } backdrop-blur-xl border-b transition-colors duration-300`}
+    <header
+      className={`fixed top-0 left-0 right-0 z-[1001] h-16 ${
+        darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'
+      } border-b transition-colors duration-300`}
     >
-      <div className="max-w-7xl mx-auto px-4 py-4">
-        <div className="flex items-center justify-between">
+      <div className="max-w-7xl mx-auto px-4 h-full flex items-center">
+        <div className="flex items-center justify-between w-full">
           {/* Logo */}
           <motion.div
             whileHover={{ scale: 1.05 }}
@@ -122,7 +119,7 @@ const Header: React.FC<HeaderProps> = ({ user, onLogout, darkMode, setDarkMode }
           </div>
         </div>
       </div>
-    </motion.header>
+    </header>
   );
 };
 

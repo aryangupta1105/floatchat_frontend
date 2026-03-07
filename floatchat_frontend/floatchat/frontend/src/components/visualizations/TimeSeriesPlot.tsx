@@ -4,9 +4,13 @@ import React from "react";
 import Plot from "react-plotly.js";
 
 interface TimeSeriesRow {
-  time: string | number | Date;
+  time?: string | number | Date;
+  juld?: string | number | Date;
+  profile_date?: string | number | Date;
   temperature?: number;
+  temperature_adjusted?: number;
   salinity?: number;
+  salinity_adjusted?: number;
   value?: number;
 }
 
@@ -27,13 +31,17 @@ const TimeSeriesPlot: React.FC<TimeSeriesPlotProps> = ({ data }) => {
 
   if (rows && rows.length > 0) {
     rows.forEach((r) => {
-      const date = new Date(r.time);
-      xValues.push(date.toISOString().split("T")[0]); // YYYY-MM-DD
+      const rawDate = r.juld ?? r.profile_date ?? r.time;
+      const date = rawDate ? new Date(rawDate as string) : null;
+      xValues.push(date ? date.toISOString().split("T")[0] : "");
 
-      if (r.temperature !== undefined) yValues.push(r.temperature);
-      else if (r.salinity !== undefined) yValues.push(r.salinity);
-      else if (r.value !== undefined) yValues.push(r.value);
+      const val = r.temperature_adjusted ?? r.temperature ?? r.salinity_adjusted ?? r.salinity ?? r.value;
+      if (val !== undefined) yValues.push(Number(val));
     });
+    // Remove entries with no date
+    const valid = xValues.map((x, i) => ({ x, y: yValues[i] })).filter(p => p.x);
+    xValues = valid.map(p => p.x);
+    yValues = valid.map(p => p.y);
   }
 
   // -----------------------------

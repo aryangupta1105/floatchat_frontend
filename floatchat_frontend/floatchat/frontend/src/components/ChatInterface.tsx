@@ -1,17 +1,19 @@
-import React, { useState, useRef, useEffect } from 'react';
-import 'regenerator-runtime/runtime';
+import { AnimatePresence, motion } from 'framer-motion';
+import { BarChart3, Bot, Check, Globe, Mic, Send, User } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
 import SpeechRecognition, { useSpeechRecognition } from 'react-speech-recognition';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Send, Mic, Globe, Bot, User, BarChart3, Check } from 'lucide-react';
-import MessageSkeleton from './MessageSkeleton';
+import 'regenerator-runtime/runtime';
+import remarkGfm from 'remark-gfm';
+import { Language, useLanguage } from '../context/LanguageContext';
+import API from '../utils/api';
+import { translateToEnglish, translateToUserLang } from '../utils/translationService';
 import ARSimulationCard from './ARSimulationCard';
 import DataCard from './DataCard';
-import { useLanguage, Language } from '../context/LanguageContext';
-import { translateToEnglish, translateToUserLang } from '../utils/translationService';
-import API from '../utils/api';
+import MessageSkeleton from './MessageSkeleton';
 
 // 🔹 Visualization types to share with MainLayout/DataVisualization
-export type VisualizationType = 'map' | 'profile' | 'timeseries' | 'comparison' | 'table';
+export type VisualizationType = 'map' | 'profile' | 'timeseries' | 'comparison' | 'table' | 'trajectory' | 'ts';
 
 export interface Message {
   id: string;
@@ -36,7 +38,9 @@ interface ChatInterfaceProps {
 
 interface ChatHistoryItem {
   _id: string;
-  question: string;
+  type: "user" | "assistant";
+  content?: string;
+  question?: string;
   response?: {
     content?: string;
     data?: any;
@@ -124,17 +128,18 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ darkMode, onShowVisualiza
       const res = await API.get("/chat/history");
       const hist: ChatHistoryItem[] = res.data.history;
 
-      const formatted = hist.map(h => ({
+      // Backend returns pre-paired [{type:"user",...},{type:"assistant",...}] already in order
+      const formatted: Message[] = hist.map(h => ({
         id: h._id,
-        type: "assistant",
-        content: h.response?.content || "No response",
+        type: h.type as "user" | "assistant",
+        content: h.type === "user" ? h.content || "" : (h.response?.content || "No response"),
         timestamp: new Date(h.createdAt),
         data: h.response?.data || null,
         hasVisualization: h.response?.hasVisualization || false,
         visualizationType: h.response?.visualizationType || null
-      })) as Message[];
+      }));
 
-      setMessages(formatted.reverse());
+      setMessages(formatted);
     } catch (err) {
       console.error("History fetch error", err);
     }
@@ -303,13 +308,31 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ darkMode, onShowVisualiza
   };
 
   const handleDownloadCsv = (message: Message) => {
-    console.log('Download CSV for message', message.id, message.data);
-    alert('Download CSV will be implemented with backend integration.');
+    const rows = message.data?.rows;
+    if (!rows?.length) { alert('No data available to download.'); return; }
+    const floatId = rows[0]?.platform_number || rows[0]?.float_id || 'unknown';
+    window.open(`/api/data/download/csv?float_id=${floatId}`, '_blank');
   };
 
   const handleDownloadNetcdf = (message: Message) => {
-    console.log('Download NetCDF for message', message.id, message.data);
-    alert('Download NetCDF will be implemented with backend integration.');
+    const rows = message.data?.rows;
+    if (!rows?.length) { alert('No data available to download.'); return; }
+    const floatId = rows[0]?.platform_number || rows[0]?.float_id || 'unknown';
+    window.open(`/api/data/download/netcdf?float_id=${floatId}`, '_blank');
+  };
+
+  const handleShowTrajectory = (message: Message) => {
+    onShowVisualization(true, {
+      type: 'trajectory',
+      sourceMessage: message
+    });
+  };
+
+  const handleShowTSDiagram = (message: Message) => {
+    onShowVisualization(true, {
+      type: 'ts',
+      sourceMessage: message
+    });
   };
 
   return (
@@ -389,7 +412,41 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ darkMode, onShowVisualiza
                         : 'bg-gray-100 text-gray-900'
                     }`}
                   >
-                    <p className="text-sm">{message.content}</p>
+                    {message.type === 'user' ? (
+                      <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                    ) : (
+                      <div className="text-sm prose-chat">
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          components={{
+                            p: ({ children }) => <p className="mb-2 last:mb-0 leading-relaxed">{children}</p>,
+                            strong: ({ children }) => <strong className="font-semibold text-blue-300">{children}</strong>,
+                            em: ({ children }) => <em className="italic opacity-90">{children}</em>,
+                            ul: ({ children }) => <ul className="list-disc list-inside space-y-1 my-2 pl-1">{children}</ul>,
+                            ol: ({ children }) => <ol className="list-decimal list-inside space-y-1 my-2 pl-1">{children}</ol>,
+                            li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+                            h1: ({ children }) => <h1 className="text-base font-bold mb-2 mt-3 first:mt-0">{children}</h1>,
+                            h2: ({ children }) => <h2 className="text-sm font-bold mb-1.5 mt-3 first:mt-0 text-blue-300">{children}</h2>,
+                            h3: ({ children }) => <h3 className="text-sm font-semibold mb-1 mt-2 first:mt-0">{children}</h3>,
+                            code: ({ children, className }) => {
+                              const isBlock = className?.includes('language-');
+                              return isBlock
+                                ? <code className={`block bg-black/30 rounded-lg px-3 py-2 my-2 text-xs font-mono overflow-x-auto ${className}`}>{children}</code>
+                                : <code className="bg-black/30 rounded px-1.5 py-0.5 text-xs font-mono">{children}</code>;
+                            },
+                            pre: ({ children }) => <pre className="my-2">{children}</pre>,
+                            blockquote: ({ children }) => <blockquote className="border-l-2 border-blue-400 pl-3 my-2 opacity-80 italic">{children}</blockquote>,
+                            a: ({ href, children }) => <a href={href} target="_blank" rel="noopener noreferrer" className="text-blue-300 underline hover:text-blue-200">{children}</a>,
+                            hr: () => <hr className="border-gray-600 my-3" />,
+                            table: ({ children }) => <div className="overflow-x-auto my-2"><table className="text-xs border-collapse w-full">{children}</table></div>,
+                            th: ({ children }) => <th className="border border-gray-600 px-2 py-1 bg-black/20 font-semibold text-left">{children}</th>,
+                            td: ({ children }) => <td className="border border-gray-600 px-2 py-1">{children}</td>,
+                          }}
+                        >
+                          {message.content}
+                        </ReactMarkdown>
+                      </div>
+                    )}
                   </div>
 
                   {message.hasAR && message.data && (
@@ -479,6 +536,28 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ darkMode, onShowVisualiza
                           } transition-colors`}
                         >
                           Download NetCDF
+                        </button>
+
+                        <button
+                          onClick={() => handleShowTrajectory(message)}
+                          className={`px-3 py-1.5 text-xs rounded-full border ${
+                            darkMode
+                              ? 'border-cyan-500 text-cyan-300 hover:bg-cyan-900/40'
+                              : 'border-cyan-500 text-cyan-700 hover:bg-cyan-50'
+                          } transition-colors`}
+                        >
+                          Float Trajectory
+                        </button>
+
+                        <button
+                          onClick={() => handleShowTSDiagram(message)}
+                          className={`px-3 py-1.5 text-xs rounded-full border ${
+                            darkMode
+                              ? 'border-purple-500 text-purple-300 hover:bg-purple-900/40'
+                              : 'border-purple-500 text-purple-700 hover:bg-purple-50'
+                          } transition-colors`}
+                        >
+                          T-S Diagram
                         </button>
                       </div>
                     </>

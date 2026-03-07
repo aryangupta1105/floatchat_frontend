@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
+import { useEffect, useState } from 'react';
 import AuthScreen from './components/AuthScreen';
 import MainLayout from './components/MainLayout';
 import { LanguageProvider } from './context/LanguageContext'; // Import this
@@ -15,24 +15,28 @@ function App() {
   };
 
   const handleLogout = () => {
-  localStorage.removeItem("token");
-  setIsAuthenticated(false);
-  setUser(null);
-};
+    localStorage.removeItem("token");
+    setIsAuthenticated(false);
+    setUser(null);
+  };
 
-useEffect(() => {
-  const token = localStorage.getItem("token");
-  if (token) {
-    API.get("/auth/me")
-      .then((res) => {
-        setUser(res.data.user);
-        setIsAuthenticated(true);
-      })
-      .catch(() => {
-        localStorage.removeItem("token");
-      });
-  }
-}, []);
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    if (token) {
+      API.get("/auth/me")
+        .then((res) => {
+          const u = res.data.user;
+          // Only auto-login if user is verified; otherwise stay on auth screen
+          if (u.is_verified) {
+            setUser(u);
+            setIsAuthenticated(true);
+          }
+        })
+        .catch(() => {
+          localStorage.removeItem("token");
+        });
+    }
+  }, []);
 
   return (
     <LanguageProvider> 

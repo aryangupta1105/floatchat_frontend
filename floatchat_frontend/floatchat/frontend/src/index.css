@@ -1,3 +1,8 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Ensure Leaflet maps never overlap fixed header/nav (z-[1000]+) */
+.leaflet-container {
+  z-index: 0 !important;
+}
