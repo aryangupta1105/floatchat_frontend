@@ -19,5 +19,22 @@ API.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
+// Normalize error responses so .data.error is always a string (never an object)
+API.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error?.response?.data) {
+      const d = error.response.data;
+      // Vercel/backend may return { code, message } or { error: { code, message } }
+      if (typeof d.error === 'object' && d.error !== null) {
+        error.response.data.error = d.error.message || 'Something went wrong';
+      } else if (typeof d === 'object' && d.code && d.message && !d.error) {
+        error.response.data = { error: d.message };
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+
 export default API;
 
