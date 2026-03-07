@@ -38,6 +38,7 @@ export const fetchUserStats = createAsyncThunk(
       const res = await fetch(`${API_BASE}/dashboard/user-stats`, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      if (!res.ok) throw new Error(`User stats API failed: ${res.status}`);
       return await res.json();
     } catch (e: any) {
       return rejectWithValue(e.message);

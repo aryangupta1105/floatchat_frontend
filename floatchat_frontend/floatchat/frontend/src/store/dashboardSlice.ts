@@ -63,6 +63,9 @@ export const fetchDashboardData = createAsyncThunk(
         fetch(`${API_BASE}/dashboard/depth-distribution`, { headers }),
         fetch(`${API_BASE}/dashboard/ts-sample`, { headers }),
       ]);
+      if (!statsRes.ok || !activityRes.ok || !depthRes.ok || !tsRes.ok) {
+        throw new Error('One or more dashboard API calls failed');
+      }
       const [stats, activity, depthDist, tsSample] = await Promise.all([
         statsRes.json(), activityRes.json(), depthRes.json(), tsRes.json()
       ]);

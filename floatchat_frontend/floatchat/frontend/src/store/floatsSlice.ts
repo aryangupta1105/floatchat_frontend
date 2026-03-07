@@ -37,6 +37,7 @@ export const fetchFloats = createAsyncThunk(
       const res = await fetch(`${API_BASE}/floats?limit=500`, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      if (!res.ok) throw new Error(`Floats API failed: ${res.status}`);
       const data = await res.json();
       const rows: FloatRow[] = Array.isArray(data)
         ? data

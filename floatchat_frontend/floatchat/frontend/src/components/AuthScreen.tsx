@@ -71,7 +71,8 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin }) => {
       setOtpSending(false);
       setStep('otp');
     } catch (err: any) {
-      setError(err?.response?.data?.error || 'Authentication failed. Check credentials.');
+      const errData = err?.response?.data?.error;
+setError(typeof errData === 'string' ? errData : errData?.message || 'Authentication failed. Check credentials.');
     } finally {
       setIsLoading(false);
     }
@@ -119,7 +120,8 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin }) => {
       const res = await API.post("/auth/verify-otp", { email: formData.email, code });
       onLogin(res.data.user);
     } catch (err: any) {
-      setOtpError(err?.response?.data?.error || err?.message || 'Verification failed');
+      const verifyErr = err?.response?.data?.error;
+setOtpError(typeof verifyErr === 'string' ? verifyErr : verifyErr?.message || err?.message || 'Verification failed');
       setOtp(['', '', '', '', '', '']);
       inputRefs.current[0]?.focus();
     } finally {
@@ -135,7 +137,8 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin }) => {
       await sendOtpToEmail(formData.email);
       setOtpError('OTP resent successfully!');
     } catch (err: any) {
-      setOtpError(err?.response?.data?.error || 'Failed to resend. Try again.');
+      const resendErr = err?.response?.data?.error;
+setOtpError(typeof resendErr === 'string' ? resendErr : resendErr?.message || 'Failed to resend. Try again.');
     } finally {
       setOtpSending(false);
     }
