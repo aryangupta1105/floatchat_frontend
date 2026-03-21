@@ -1,28 +1,31 @@
 // services/emailService.js
-const nodemailer = require("nodemailer");
 const { Resend } = require("resend");
 const { logger } = require("../utils/logger");
 
-// ── Nodemailer transport (for OTP emails) ─────────────────────────
-let transporter = null;
+// ── Resend client (shared by OTP + alert emails) ─────────────────
+let resendClient = null;
 
-const getTransporter = () => {
-  if (transporter) return transporter;
-  transporter = nodemailer.createTransport({
-    host: process.env.MAIL_HOST || "smtp.gmail.com",
-    port: 587,
-    secure: false,
-    auth: {
-      user: process.env.MAIL_USER,
-      pass: process.env.MAIL_PASSWORD,
-    },
-  });
-  return transporter;
+const getResendClient = () => {
+  if (resendClient) return resendClient;
+  if (!process.env.RESEND_API_KEY) {
+    logger.warn("RESEND_API_KEY missing in environment");
+    return null;
+  }
+  resendClient = new Resend(process.env.RESEND_API_KEY);
+  return resendClient;
 };
 
+// ── OTP emails (via Resend HTTP API) ──────────────────────────────
 const sendOtpEmail = async (to, code) => {
-  const t = getTransporter();
-  const from = process.env.MAIL_FROM || process.env.MAIL_USER;
+  const client = getResendClient();
+  const from = process.env.RESEND_FROM_EMAIL || "onboarding@resend.dev";
+
+  logger.info(`[OTP] Sending to: ${to}, from: ${from}, RESEND_API_KEY: ${process.env.RESEND_API_KEY ? 'SET' : 'MISSING'}`);
+
+  if (!client) {
+    logger.error('[OTP] Resend client not initialized — RESEND_API_KEY missing');
+    return false;
+  }
 
   const html = `
     <div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;padding:24px;background:#1e293b;border-radius:12px;color:#f1f5f9;">
@@ -37,52 +40,41 @@ const sendOtpEmail = async (to, code) => {
   `;
 
   try {
-    const info = await t.sendMail({
+    const response = await client.emails.send({
       from: `"FloatChat" <${from}>`,
       to,
       subject: "FloatChat — Email Verification Code",
       html,
     });
-    logger.info("OTP email sent:", info.messageId);
+    logger.info("OTP email sent:", response?.id || response);
     return true;
   } catch (err) {
-    logger.error("OTP email send failed:", err.message);
+    logger.error("OTP email send failed:", err.message || err);
     return false;
   }
 };
 
-// ── Resend transport (for alert emails) ───────────────────────────
-let resendClient = null;
-
-const init = () => {
-  if (!process.env.RESEND_API_KEY) {
-    logger.warn("RESEND_API_KEY missing in environment");
-    return null;
-  }
-  resendClient = new Resend(process.env.RESEND_API_KEY);
-  return resendClient;
-};
-
+// ── Alert emails (via Resend HTTP API) ────────────────────────────
 const sendAlertEmail = async ({ to, subject, text }) => {
-  if (!resendClient) init();
+  const client = getResendClient();
 
-  if (!resendClient) {
-    logger.warn("Resend not configured — skipping email");
+  if (!client) {
+    logger.warn("Resend not configured — skipping alert email");
     return false;
   }
 
   try {
-    const response = await resendClient.emails.send({
+    const response = await client.emails.send({
       from: process.env.RESEND_FROM_EMAIL || "FloatChat Alerts <alerts@example.com>",
       to,
       subject,
       text,
     });
 
-    logger.info("Resend email sent:", response?.id || response);
+    logger.info("Alert email sent:", response?.id || response);
     return true;
   } catch (err) {
-    logger.error("Resend email send failed:", err);
+    logger.error("Alert email send failed:", err);
     return false;
   }
 };
