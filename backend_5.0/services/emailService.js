@@ -27,7 +27,7 @@ const sendViaMaileroo = async ({ to, toName, subject, html, plain }) => {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
+        "X-API-Key": apiKey,
       },
       body: JSON.stringify(body),
     });
