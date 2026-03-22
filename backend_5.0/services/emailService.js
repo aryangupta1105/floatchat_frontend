@@ -1,31 +1,55 @@
 // services/emailService.js
-const { Resend } = require("resend");
 const { logger } = require("../utils/logger");
 
-// ── Resend client (shared by OTP + alert emails) ─────────────────
-let resendClient = null;
+const MAILEROO_API_URL = "https://smtp.maileroo.com/api/v2/emails";
 
-const getResendClient = () => {
-  if (resendClient) return resendClient;
-  if (!process.env.RESEND_API_KEY) {
-    logger.warn("RESEND_API_KEY missing in environment");
-    return null;
-  }
-  resendClient = new Resend(process.env.RESEND_API_KEY);
-  return resendClient;
-};
+// ── Shared Maileroo sender ──────────────────────────────────
+const sendViaMaileroo = async ({ to, toName, subject, html, plain }) => {
+  const apiKey = process.env.MAILEROO_API_KEY;
+  const fromAddr = "floatchat@5842dc8d9446e20b.maileroo.org";
+  const fromName = process.env.MAILEROO_FROM_NAME || "FloatChat";
 
-// ── OTP emails (via Resend HTTP API) ──────────────────────────────
-const sendOtpEmail = async (to, code) => {
-  const client = getResendClient();
-  const from = process.env.RESEND_FROM_EMAIL || "onboarding@resend.dev";
-
-  logger.info(`[OTP] Sending to: ${to}, from: ${from}, RESEND_API_KEY: ${process.env.RESEND_API_KEY ? 'SET' : 'MISSING'}`);
-
-  if (!client) {
-    logger.error('[OTP] Resend client not initialized — RESEND_API_KEY missing');
+  if (!apiKey || !fromAddr) {
+    logger.error("[Maileroo] MAILEROO_API_KEY or MAILEROO_FROM_EMAIL env var missing");
     return false;
   }
+
+  const body = {
+    from: { address: fromAddr, display_name: fromName },
+    to: [{ address: to, display_name: toName || to }],
+    subject,
+  };
+  if (html) body.html = html;
+  if (plain) body.plain = plain;
+
+  try {
+    const res = await fetch(MAILEROO_API_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(body),
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      logger.error(`[Maileroo] ${res.status} — ${JSON.stringify(data)}`);
+      return false;
+    }
+
+    logger.info(`[Maileroo] Email sent to ${to}:`, JSON.stringify(data));
+    return true;
+  } catch (err) {
+    logger.error("[Maileroo] Request failed:", err.message || err);
+    return false;
+  }
+};
+
+// ── OTP emails ──────────────────────────────────────────────
+const sendOtpEmail = async (to, code) => {
+  logger.info(`[OTP] Sending to: ${to}`);
 
   const html = `
     <div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;padding:24px;background:#1e293b;border-radius:12px;color:#f1f5f9;">
@@ -39,44 +63,16 @@ const sendOtpEmail = async (to, code) => {
     </div>
   `;
 
-  try {
-    const response = await client.emails.send({
-      from: `"FloatChat" <${from}>`,
-      to,
-      subject: "FloatChat — Email Verification Code",
-      html,
-    });
-    logger.info("OTP email sent:", response?.id || response);
-    return true;
-  } catch (err) {
-    logger.error("OTP email send failed:", err.message || err);
-    return false;
-  }
+  return sendViaMaileroo({
+    to,
+    subject: "FloatChat — Email Verification Code",
+    html,
+  });
 };
 
-// ── Alert emails (via Resend HTTP API) ────────────────────────────
+// ── Alert emails ────────────────────────────────────────────
 const sendAlertEmail = async ({ to, subject, text }) => {
-  const client = getResendClient();
-
-  if (!client) {
-    logger.warn("Resend not configured — skipping alert email");
-    return false;
-  }
-
-  try {
-    const response = await client.emails.send({
-      from: process.env.RESEND_FROM_EMAIL || "FloatChat Alerts <alerts@example.com>",
-      to,
-      subject,
-      text,
-    });
-
-    logger.info("Alert email sent:", response?.id || response);
-    return true;
-  } catch (err) {
-    logger.error("Alert email send failed:", err);
-    return false;
-  }
+  return sendViaMaileroo({ to, subject, plain: text });
 };
 
 module.exports = {
