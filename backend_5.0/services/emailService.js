@@ -1,28 +1,55 @@
 // services/emailService.js
-const nodemailer = require("nodemailer");
-const { Resend } = require("resend");
 const { logger } = require("../utils/logger");
 
-// ── Nodemailer transport (for OTP emails) ─────────────────────────
-let transporter = null;
+const MAILEROO_API_URL = "https://smtp.maileroo.com/api/v2/emails";
 
-const getTransporter = () => {
-  if (transporter) return transporter;
-  transporter = nodemailer.createTransport({
-    host: process.env.MAIL_HOST || "smtp.gmail.com",
-    port: 587,
-    secure: false,
-    auth: {
-      user: process.env.MAIL_USER,
-      pass: process.env.MAIL_PASSWORD,
-    },
-  });
-  return transporter;
+// ── Shared Maileroo sender ──────────────────────────────────
+const sendViaMaileroo = async ({ to, toName, subject, html, plain }) => {
+  const apiKey = process.env.MAILEROO_API_KEY;
+  const fromAddr = "floatchat@5842dc8d9446e20b.maileroo.org";
+  const fromName = process.env.MAILEROO_FROM_NAME || "FloatChat";
+
+  if (!apiKey || !fromAddr) {
+    logger.error("[Maileroo] MAILEROO_API_KEY or MAILEROO_FROM_EMAIL env var missing");
+    return false;
+  }
+
+  const body = {
+    from: { address: fromAddr, display_name: fromName },
+    to: [{ address: to, display_name: toName || to }],
+    subject,
+  };
+  if (html) body.html = html;
+  if (plain) body.plain = plain;
+
+  try {
+    const res = await fetch(MAILEROO_API_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(body),
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      logger.error(`[Maileroo] ${res.status} — ${JSON.stringify(data)}`);
+      return false;
+    }
+
+    logger.info(`[Maileroo] Email sent to ${to}:`, JSON.stringify(data));
+    return true;
+  } catch (err) {
+    logger.error("[Maileroo] Request failed:", err.message || err);
+    return false;
+  }
 };
 
+// ── OTP emails ──────────────────────────────────────────────
 const sendOtpEmail = async (to, code) => {
-  const t = getTransporter();
-  const from = process.env.MAIL_FROM || process.env.MAIL_USER;
+  logger.info(`[OTP] Sending to: ${to}`);
 
   const html = `
     <div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;padding:24px;background:#1e293b;border-radius:12px;color:#f1f5f9;">
@@ -36,55 +63,16 @@ const sendOtpEmail = async (to, code) => {
     </div>
   `;
 
-  try {
-    const info = await t.sendMail({
-      from: `"FloatChat" <${from}>`,
-      to,
-      subject: "FloatChat — Email Verification Code",
-      html,
-    });
-    logger.info("OTP email sent:", info.messageId);
-    return true;
-  } catch (err) {
-    logger.error("OTP email send failed:", err.message);
-    return false;
-  }
+  return sendViaMaileroo({
+    to,
+    subject: "FloatChat — Email Verification Code",
+    html,
+  });
 };
 
-// ── Resend transport (for alert emails) ───────────────────────────
-let resendClient = null;
-
-const init = () => {
-  if (!process.env.RESEND_API_KEY) {
-    logger.warn("RESEND_API_KEY missing in environment");
-    return null;
-  }
-  resendClient = new Resend(process.env.RESEND_API_KEY);
-  return resendClient;
-};
-
+// ── Alert emails ────────────────────────────────────────────
 const sendAlertEmail = async ({ to, subject, text }) => {
-  if (!resendClient) init();
-
-  if (!resendClient) {
-    logger.warn("Resend not configured — skipping email");
-    return false;
-  }
-
-  try {
-    const response = await resendClient.emails.send({
-      from: process.env.RESEND_FROM_EMAIL || "FloatChat Alerts <alerts@example.com>",
-      to,
-      subject,
-      text,
-    });
-
-    logger.info("Resend email sent:", response?.id || response);
-    return true;
-  } catch (err) {
-    logger.error("Resend email send failed:", err);
-    return false;
-  }
+  return sendViaMaileroo({ to, subject, plain: text });
 };
 
 module.exports = {
