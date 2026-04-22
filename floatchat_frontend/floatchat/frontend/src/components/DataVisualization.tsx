@@ -232,7 +232,7 @@ const DataVisualization: React.FC<DataVisualizationProps> = ({ darkMode, vizOpti
             </div>
           )}
 
-          {onClose && vizOptions && (
+          {onClose && (
             <motion.button
               whileHover={{ scale: 1.1 }}
               whileTap={{ scale: 0.9 }}
@@ -242,7 +242,7 @@ const DataVisualization: React.FC<DataVisualizationProps> = ({ darkMode, vizOpti
                   ? 'hover:bg-gray-700 text-gray-400 hover:text-white'
                   : 'hover:bg-gray-200 text-gray-500 hover:text-gray-900'
               }`}
-              title="Clear visualization"
+              title={vizOptions ? "Clear visualization" : "Close workspace"}
             >
               <X className="w-4 h-4" />
             </motion.button>

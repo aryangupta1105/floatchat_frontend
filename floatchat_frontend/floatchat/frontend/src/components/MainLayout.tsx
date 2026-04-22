@@ -62,7 +62,16 @@ const MainLayout: React.FC<MainLayoutProps> = ({ user, onLogout }) => {
       if (!isDragging.current || !containerRef.current) return;
       const rect = containerRef.current.getBoundingClientRect();
       const pct = ((ev.clientX - rect.left) / rect.width) * 100;
-      setChatWidthPct(Math.min(75, Math.max(20, pct)));
+      
+      // Snap to collapse if dragged nearly to the end (> 92%)
+      if (pct > 92) {
+        setVizOpen(false);
+        setChatWidthPct(35); // Reset to default for next open
+        return;
+      }
+
+      // Clamp between 10% and 90%
+      setChatWidthPct(Math.min(90, Math.max(10, pct)));
     };
     const stopDrag = () => {
       isDragging.current = false;
@@ -160,7 +169,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ user, onLogout }) => {
       {activeTab === 'floatchat' && (
         <div
           ref={containerRef}
-          className="fixed left-0 right-0 flex select-none"
+          className="fixed left-0 right-0 flex"
           style={{ top: '108px', bottom: 0 }}
         >
           {/* ── LEFT: Chat Panel ── */}
@@ -208,18 +217,23 @@ const MainLayout: React.FC<MainLayoutProps> = ({ user, onLogout }) => {
           {vizOpen && (
             <div
               onMouseDown={startDrag}
-              title="Drag to resize panels"
-              className={`relative flex-shrink-0 w-1.5 cursor-col-resize group z-10 ${
+              title="Drag to resize workspace"
+              className={`relative flex-shrink-0 w-2 h-full cursor-col-resize group z-50 ${
                 darkMode
-                  ? 'bg-gray-800 hover:bg-blue-500/60'
-                  : 'bg-gray-200 hover:bg-blue-400/50'
-              } transition-colors duration-150`}
+                  ? 'bg-gray-800/80 hover:bg-blue-600/40'
+                  : 'bg-gray-200 hover:bg-blue-500/30'
+              } border-x ${darkMode ? 'border-gray-700/50' : 'border-gray-300/50'} transition-all duration-150`}
             >
-              {/* grip pill */}
+              {/* Vertical accent line (always visible but subtle) */}
+              <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-[1px] bg-gray-700/30" />
+              
+              {/* Grip pill (larger and brighter on hover) */}
               <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 flex items-center pointer-events-none">
-                <div className={`w-[3px] h-10 rounded-full ${
-                  darkMode ? 'bg-gray-600 group-hover:bg-blue-400' : 'bg-gray-400 group-hover:bg-blue-500'
-                } transition-colors`} />
+                <div className={`w-1 h-12 rounded-full shadow-sm ${
+                  darkMode 
+                    ? 'bg-gray-600 group-hover:bg-blue-400 group-active:bg-blue-500' 
+                    : 'bg-gray-400 group-hover:bg-blue-500 group-active:bg-blue-600'
+                } transition-all`} />
               </div>
             </div>
           )}
