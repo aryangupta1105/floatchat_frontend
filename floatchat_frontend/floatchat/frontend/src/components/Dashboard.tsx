@@ -104,6 +104,36 @@ const Dashboard: React.FC<DashboardProps> = ({ darkMode, onOpenExplorer }) => {
   const cardBase = darkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-gray-200 text-gray-900';
   const subtleText = darkMode ? 'text-gray-400' : 'text-gray-600';
 
+  const tsPoints = useMemo(() => {
+    if (!tsSample) return [] as { sal: number; temp: number; depth: number | null }[];
+
+    const size = Math.min(
+      tsSample.salinities?.length ?? 0,
+      tsSample.temperatures?.length ?? 0,
+      tsSample.depths?.length ?? 0
+    );
+
+    const points: { sal: number; temp: number; depth: number | null }[] = [];
+    for (let i = 0; i < size; i += 1) {
+      const sal = Number(tsSample.salinities[i]);
+      const temp = Number(tsSample.temperatures[i]);
+      const depthRaw = tsSample.depths[i];
+      const depth = depthRaw == null ? null : Number(depthRaw);
+
+      if (!Number.isFinite(sal) || !Number.isFinite(temp)) {
+        continue;
+      }
+
+      points.push({
+        sal,
+        temp,
+        depth: Number.isFinite(depth) ? depth : null,
+      });
+    }
+
+    return points;
+  }, [tsSample]);
+
   const kpiCards = stats ? [
     { label: 'Total ARGO Floats',   value: stats.total_floats.toLocaleString(),     icon: Globe2,      color: 'text-blue-500'   },
     { label: 'Profiles (6 Months)', value: stats.profiles_6months.toLocaleString(), icon: Activity,    color: 'text-green-500'  },
@@ -280,15 +310,15 @@ const Dashboard: React.FC<DashboardProps> = ({ darkMode, onOpenExplorer }) => {
         <div className={`rounded-2xl p-4 border ${cardBase}`}>
           <h3 className="text-lg font-semibold mb-2">Temperature-Salinity Diagram</h3>
           <div className="h-[300px]">
-            {tsSample && tsSample.temperatures.length > 0 ? (
+            {tsPoints.length > 0 ? (
               <Plot
                 data={[{
-                  x: tsSample.salinities,
-                  y: tsSample.temperatures,
+                  x: tsPoints.map((p) => p.sal),
+                  y: tsPoints.map((p) => p.temp),
                   mode: 'markers',
                   type: 'scatter',
                   marker: {
-                    color: tsSample.depths,
+                    color: tsPoints.map((p) => (p.depth == null ? 0 : p.depth)),
                     colorscale: 'Viridis',
                     reversescale: true,
                     size: 4,

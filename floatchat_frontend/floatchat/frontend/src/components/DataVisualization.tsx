@@ -70,16 +70,36 @@ const DataVisualization: React.FC<DataVisualizationProps> = ({ darkMode, vizOpti
             </div>
           );
         }
-        const temps = tsRows.map((r: any) => r.temperature_adjusted ?? r.temperature).filter((v: any) => v != null);
-        const sals = tsRows.map((r: any) => r.salinity_adjusted ?? r.salinity).filter((v: any) => v != null);
-        const depths = tsRows.map((r: any) => r.depth).filter((v: any) => v != null);
-        if (temps.length === 0 || sals.length === 0) {
+        const points = tsRows
+          .map((r: any) => {
+            const temp = Number(r.temperature_adjusted ?? r.temperature);
+            const sal = Number(r.salinity_adjusted ?? r.salinity);
+            const depthRaw = r.depth;
+            const depth = depthRaw == null ? null : Number(depthRaw);
+            if (!Number.isFinite(temp) || !Number.isFinite(sal)) {
+              return null;
+            }
+            return {
+              temp,
+              sal,
+              depth: Number.isFinite(depth) ? depth : null,
+            };
+          })
+          .filter((p: any) => p != null);
+
+        if (points.length === 0) {
           return (
             <div className="h-full flex items-center justify-center text-sm text-gray-400">
-              Temperature or salinity data missing for T-S diagram.
+              Temperature-salinity values are missing or invalid for this dataset.
             </div>
           );
         }
+
+        const temps = points.map((p: any) => p.temp);
+        const sals = points.map((p: any) => p.sal);
+        const hasDepthValues = points.some((p: any) => p.depth != null);
+        const depths = points.map((p: any) => (p.depth == null ? 0 : p.depth));
+
         return (
           <Plot
             data={[{
@@ -88,12 +108,12 @@ const DataVisualization: React.FC<DataVisualizationProps> = ({ darkMode, vizOpti
               mode: 'markers',
               type: 'scatter',
               marker: {
-                color: depths.length > 0 ? depths : '#3b82f6',
+                color: hasDepthValues ? depths : '#3b82f6',
                 colorscale: 'Viridis',
                 reversescale: true,
                 size: 5,
                 opacity: 0.7,
-                ...(depths.length > 0 ? {
+                ...(hasDepthValues ? {
                   colorbar: {
                     title: { text: 'Depth (m)', font: { size: 10 } },
                     thickness: 12,
