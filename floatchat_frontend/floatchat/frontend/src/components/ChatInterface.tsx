@@ -25,6 +25,11 @@ function isTSData(data: any) {
   );
 }
 
+function hasFloatId(data: any) {
+  const rows = data?.rows || [];
+  return rows.some((r: any) => r.platform_number || r.float_id);
+}
+
 // 🔹 Visualization types to share with MainLayout/DataVisualization
 export type VisualizationType = 'map' | 'profile' | 'timeseries' | 'comparison' | 'table' | 'trajectory' | 'ts';
 
@@ -554,11 +559,15 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ darkMode, onShowVisualiza
 
                         <button
                           onClick={() => handleShowTrajectory(message)}
-                          className={`px-3 py-1.5 text-xs rounded-full border ${
-                            darkMode
+                          disabled={!hasFloatId(message.data)}
+                          title={!hasFloatId(message.data) ? "Requires float-specific data (platform_number)" : "Show float trajectory on map"}
+                          className={`px-3 py-1.5 text-xs rounded-full border transition-colors ${
+                            !hasFloatId(message.data)
+                              ? 'opacity-50 cursor-not-allowed border-gray-500 text-gray-500'
+                              : darkMode
                               ? 'border-cyan-500 text-cyan-300 hover:bg-cyan-900/40'
                               : 'border-cyan-500 text-cyan-700 hover:bg-cyan-50'
-                          } transition-colors`}
+                          }`}
                         >
                           Float Trajectory
                         </button>

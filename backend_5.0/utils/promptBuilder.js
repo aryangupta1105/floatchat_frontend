@@ -249,6 +249,7 @@ const buildSqlPrompt = ({ question, ragContext }) => {
     "- For ANY question about oxygen/chlorophyll/nitrate: JOIN bgc_levels on profile_key.",
     "- For float location/map queries: SELECT from file_metadata only (no JOIN needed).",
     "- Always use platform_number (TEXT) to filter by float ID.",
+    "- ALWAYS include fm.platform_number in the SELECT clause whenever querying file_metadata (even in JOINs). The frontend relies on platform_number in every row for trajectory maps and downloads. Never omit it.",
     "- Always use juld (TIMESTAMPTZ) for date filters, not profile_date.",
     "- LIMIT to 500 rows unless the question asks for aggregates.",
     "- GROUP BY rule: every non-aggregate column in SELECT must appear in GROUP BY.",

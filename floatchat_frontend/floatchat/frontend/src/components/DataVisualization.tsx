@@ -63,8 +63,20 @@ const DataVisualization: React.FC<DataVisualizationProps> = ({ darkMode, vizOpti
         const floatId = rows?.[0]?.platform_number || rows?.[0]?.float_id || '';
         if (!floatId) {
           return (
-            <div className="h-full flex items-center justify-center text-sm text-gray-400">
-              No float ID found in message data to show trajectory.
+            <div className="h-full flex flex-col items-center justify-center gap-3 px-8 text-center">
+              <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+                darkMode ? 'bg-cyan-500/10' : 'bg-cyan-100'
+              }`}>
+                <MapPin className="w-6 h-6 text-cyan-500/60" />
+              </div>
+              <p className={`text-sm font-medium ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                Trajectory requires a specific float
+              </p>
+              <p className={`text-xs leading-relaxed max-w-xs ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                Try asking for float-specific data, e.g.{' '}
+                <span className="font-medium text-cyan-400">"show data for float 2902266"</span>{' '}
+                then click Float Trajectory.
+              </p>
             </div>
           );
         }
