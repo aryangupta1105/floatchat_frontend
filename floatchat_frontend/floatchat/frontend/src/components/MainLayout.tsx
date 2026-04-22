@@ -20,7 +20,7 @@ import {
 import React, { Suspense, useCallback, useRef, useState } from 'react';
 import { useGetUserStatsQuery } from '../store/apiSlice';
 import { VisualizationOptions } from './ChatInterface';
-import FloatingButtons from './FloatingButtons';
+
 import Header from './Header';
 
 // Lazy-load heavy components (Plotly ~3MB, Leaflet ~200KB)
@@ -672,7 +672,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ user, onLogout }) => {
         </motion.main>
       )}
 
-      <FloatingButtons darkMode={darkMode} />
+
     </div>
   );
 };
