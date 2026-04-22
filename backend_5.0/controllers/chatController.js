@@ -12,6 +12,7 @@ const ChatHistory = require("../models/ChatHistory");
 const { logger } = require("../utils/logger");
 const queryOrchestrator = require("../services/queryOrchestrator");
 const { isProfileShape, isTsShape, shapeSummary } = require("../utils/visualizationDetector");
+const { detectLanguage, translateToEnglish, translateFromEnglish } = require("../services/languageService");
 
 const isTsRequested = (question = "", mode = "") => {
   const q = String(question).toLowerCase();
@@ -39,13 +40,26 @@ const processQuery = async (req, res, next) => {
 
     logger.info(`📩 Received question: "${question}"`);
 
+    // =====================================================
+    //  LANGUAGE DETECTION — detect input language
+    // =====================================================
+    const detectedLang = await detectLanguage(question);
+    logger.info(`🌐 Detected language: ${detectedLang}`);
+
+    // Translate to English for the pipeline (if needed)
+    let normalizedQuestion = question;
+    if (detectedLang !== "en") {
+      normalizedQuestion = await translateToEnglish(question, detectedLang);
+      logger.info(`🔄 Normalized question: "${normalizedQuestion}"`);
+    }
+
     // Fetch recent conversation context for this user
     const chatHistory = await ChatHistory.getRecentContext(userId, 5);
 
     // =====================================================
     //  STEP 1 — Let orchestrator fully handle classification + data flow
     // =====================================================
-    const result = await queryOrchestrator.processQuery(question, mode, chatHistory);
+    const result = await queryOrchestrator.processQuery(normalizedQuestion, mode, chatHistory);
 
     // result:
     // {
@@ -57,6 +71,15 @@ const processQuery = async (req, res, next) => {
     // }
 
     const durationMs = Date.now() - startedAt;
+
+    // =====================================================
+    //  TRANSLATE ANSWER BACK to user's language (if needed)
+    // =====================================================
+    let finalAnswer = result.answer;
+    if (detectedLang !== "en" && finalAnswer) {
+      finalAnswer = await translateFromEnglish(finalAnswer, detectedLang);
+      logger.info(`🔄 Translated answer back to ${detectedLang}`);
+    }
 
     // =====================================================
     //  STEP 2a — Chat/conceptual responses: no data, no visualization
@@ -73,12 +96,13 @@ const processQuery = async (req, res, next) => {
       }
       return res.json({
         ok: true,
-        content: result.answer || "No answer available.",
+        content: finalAnswer || "No answer available.",
         hasVisualization: false,
         hasAR: false,
         visualizationType: null,
         data: null,
-        meta: { durationMs, error: null }
+        meta: { durationMs, error: null },
+        language: { detected: detectedLang, original: detectedLang }
       });
     }
 
@@ -175,12 +199,13 @@ const processQuery = async (req, res, next) => {
     // =====================================================
     return res.json({
       ok: true,
-      content: result.answer || "No answer available.",
+      content: finalAnswer || "No answer available.",
       hasVisualization,
       hasAR: false,
       visualizationType,
       data: responseData,
-      meta: { durationMs, error: result.error || null, visualizationMeta }
+      meta: { durationMs, error: result.error || null, visualizationMeta },
+      language: { detected: detectedLang, original: detectedLang }
     });
 
   } catch (err) {
