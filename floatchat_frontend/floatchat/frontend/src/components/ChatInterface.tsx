@@ -349,34 +349,31 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ darkMode, onShowVisualiza
   };
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.6 }}
-      className={`h-[600px] rounded-2xl ${
-        darkMode ? 'bg-gray-800' : 'bg-white'
-      } shadow-xl border ${darkMode ? 'border-gray-700' : 'border-gray-200'} flex flex-col`}
+    <div
+      className={`h-full flex flex-col ${
+        darkMode ? 'bg-gray-900' : 'bg-white'
+      }`}
     >
       {/* Header */}
       <div
-        className={`p-6 border-b ${
-          darkMode ? 'border-gray-700' : 'border-gray-200'
-        } rounded-t-2xl`}
+        className={`flex-shrink-0 px-5 py-3 border-b ${
+          darkMode ? 'border-gray-700/60' : 'border-gray-200'
+        }`}
       >
         <div className="flex items-center space-x-3">
           <motion.div
             animate={{ scale: [1, 1.1, 1] }}
             transition={{ duration: 2, repeat: Infinity }}
-            className="w-10 h-10 bg-gradient-to-r from-blue-500 to-cyan-400 rounded-full flex items-center justify-center"
+            className="w-8 h-8 bg-gradient-to-r from-blue-500 to-cyan-400 rounded-full flex items-center justify-center flex-shrink-0"
           >
-            <Bot className="w-5 h-5 text-white" />
+            <Bot className="w-4 h-4 text-white" />
           </motion.div>
           <div>
-            <h3 className={`font-semibold ${darkMode ? 'text-white' : 'text-gray-900'}`}>
+            <h3 className={`text-sm font-semibold ${darkMode ? 'text-white' : 'text-gray-900'}`}>
               FloatChat Assistant
             </h3>
-            <p className={`text-sm ${darkMode ? 'text-green-400' : 'text-green-600'}`}>
-              ● Online - Ready to help with ocean data
+            <p className={`text-xs ${darkMode ? 'text-green-400' : 'text-green-600'}`}>
+              ● Online
             </p>
           </div>
         </div>
@@ -715,7 +712,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ darkMode, onShowVisualiza
           </div>
         </div>
       </div>
-    </motion.div>
+    </div>
   );
 };
 
