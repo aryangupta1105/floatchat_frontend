@@ -8,6 +8,7 @@ import API from "./utils/api";
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [user, setUser] = useState(null);
+  const [isInitializing, setIsInitializing] = useState(true);
 
   const handleLogin = (userData: any) => {
     setUser(userData);
@@ -34,9 +35,25 @@ function App() {
         })
         .catch(() => {
           localStorage.removeItem("token");
+        })
+        .finally(() => {
+          setIsInitializing(false);
         });
+    } else {
+      setIsInitializing(false);
     }
   }, []);
+
+  if (isInitializing) {
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 border-4 border-blue-500/20 border-t-blue-500 rounded-full animate-spin" />
+          <p className="text-gray-400 text-sm animate-pulse">Initializing FloatChat...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <LanguageProvider> 

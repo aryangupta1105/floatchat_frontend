@@ -118,6 +118,9 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin }) => {
 
     try {
       const res = await API.post("/auth/verify-otp", { email: formData.email, code });
+      if (res.data.token) {
+        localStorage.setItem("token", res.data.token);
+      }
       onLogin(res.data.user);
     } catch (err: any) {
       const verifyErr = err?.response?.data?.error;
