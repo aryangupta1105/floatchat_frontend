@@ -104,6 +104,30 @@ WHERE fm.platform_number = '1900065'
 ORDER BY fm.juld DESC, cl.depth ASC
 LIMIT 500;
 
+Q: plot a vertical temperature profile for float 1900066
+SQL:
+SELECT fm.profile_key, fm.juld AS profile_date, cl.depth,
+       cl.temperature_adjusted, cl.salinity_adjusted
+FROM file_metadata fm
+JOIN core_levels cl ON cl.profile_key = fm.profile_key
+WHERE fm.platform_number = '1900066'
+  AND cl.depth IS NOT NULL
+  AND cl.temperature_adjusted IS NOT NULL
+ORDER BY fm.juld DESC, cl.depth ASC
+LIMIT 500;
+
+Q: show a temperature salinity diagram for float 1900066
+SQL:
+SELECT fm.profile_key, fm.juld AS profile_date, cl.depth,
+       cl.temperature_adjusted, cl.salinity_adjusted
+FROM file_metadata fm
+JOIN core_levels cl ON cl.profile_key = fm.profile_key
+WHERE fm.platform_number = '1900066'
+  AND cl.temperature_adjusted IS NOT NULL
+  AND cl.salinity_adjusted IS NOT NULL
+ORDER BY fm.juld DESC, cl.depth ASC
+LIMIT 500;
+
 Q: how many profiles does each float have
 SQL:
 SELECT platform_number, COUNT(*) AS profile_count,
@@ -214,7 +238,14 @@ const buildSqlPrompt = ({ question, ragContext }) => {
     "",
     "=== CRITICAL RULES ===",
     "- Return ONLY the raw SQL query — no markdown, no code fences, no explanations.",
+    "- IF visualization_requested = true THEN enforce depth-resolved schema.",
+    "- If user intent is: 'profile', 'depth', 'vertical', 'T-S', 'salinity vs temperature' -> ALWAYS include: depth, temperature (or temperature_adjusted), salinity (or salinity_adjusted).",
+    "- NEVER use aggregation (MAX, AVG, etc.) when visualization is expected or when the user intent involves profiles or T-S diagrams.",
     "- For ANY question about depth/temperature/salinity profiles: JOIN core_levels on profile_key.",
+    "- Profile intent MUST return depth-level rows (non-aggregated) with depth (or pressure) and temperature_adjusted (or salinity_adjusted).",
+    "- T-S intent MUST return paired temperature_adjusted and salinity_adjusted values per row; include depth when available.",
+    "- For profile or T-S intents, DO NOT use aggregate-only outputs (no MAX/MIN/AVG-only result sets, no GROUP BY-only summaries).",
+    "- For profile or T-S intents, add filters to exclude NULL depth/temperature/salinity as needed for chartability.",
     "- For ANY question about oxygen/chlorophyll/nitrate: JOIN bgc_levels on profile_key.",
     "- For float location/map queries: SELECT from file_metadata only (no JOIN needed).",
     "- Always use platform_number (TEXT) to filter by float ID.",

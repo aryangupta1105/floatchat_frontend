@@ -12,6 +12,19 @@ import ARSimulationCard from './ARSimulationCard';
 import DataCard from './DataCard';
 import MessageSkeleton from './MessageSkeleton';
 
+function isProfileData(data: any) {
+  const rows = data?.rows || [];
+  return rows.some((r: any) => r.depth != null && (r.temperature || r.temperature_adjusted));
+}
+
+function isTSData(data: any) {
+  const rows = data?.rows || [];
+  return rows.some((r: any) =>
+    (r.temperature || r.temperature_adjusted) &&
+    (r.salinity || r.salinity_adjusted)
+  );
+}
+
 // 🔹 Visualization types to share with MainLayout/DataVisualization
 export type VisualizationType = 'map' | 'profile' | 'timeseries' | 'comparison' | 'table' | 'trajectory' | 'ts';
 
@@ -496,11 +509,15 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ darkMode, onShowVisualiza
 
                         <button
                           onClick={() => handlePlotProfiles(message)}
-                          className={`px-3 py-1.5 text-xs rounded-full border ${
-                            darkMode
+                          disabled={!isProfileData(message.data)}
+                          title={!isProfileData(message.data) ? "Requires depth-resolved temperature data" : undefined}
+                          className={`px-3 py-1.5 text-xs rounded-full border transition-colors ${
+                            !isProfileData(message.data)
+                              ? 'opacity-50 cursor-not-allowed border-gray-500 text-gray-500'
+                              : darkMode
                               ? 'border-emerald-500 text-emerald-300 hover:bg-emerald-900/40'
                               : 'border-emerald-500 text-emerald-700 hover:bg-emerald-50'
-                          } transition-colors`}
+                          }`}
                         >
                           Plot profiles
                         </button>
@@ -551,15 +568,31 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ darkMode, onShowVisualiza
 
                         <button
                           onClick={() => handleShowTSDiagram(message)}
-                          className={`px-3 py-1.5 text-xs rounded-full border ${
-                            darkMode
+                          disabled={!isTSData(message.data)}
+                          title={!isTSData(message.data) ? "Requires temperature and salinity data" : undefined}
+                          className={`px-3 py-1.5 text-xs rounded-full border transition-colors ${
+                            !isTSData(message.data)
+                              ? 'opacity-50 cursor-not-allowed border-gray-500 text-gray-500'
+                              : darkMode
                               ? 'border-purple-500 text-purple-300 hover:bg-purple-900/40'
                               : 'border-purple-500 text-purple-700 hover:bg-purple-50'
-                          } transition-colors`}
+                          }`}
                         >
                           T-S Diagram
                         </button>
                       </div>
+
+                      {/* 🔹 Fallback warning for incompatible profile data */}
+                      {(!isProfileData(message.data) && !isTSData(message.data)) && (
+                        <motion.div 
+                          initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                          className={`mt-2 text-xs p-2 rounded-lg ${
+                            darkMode ? 'bg-orange-900/40 text-orange-200 border border-orange-800' : 'bg-orange-50 text-orange-800 border border-orange-200'
+                          }`}
+                        >
+                          This result is aggregated and cannot be visualized as a profile. Try asking for depth-resolved data.
+                        </motion.div>
+                      )}
                     </>
                   )}
                 </div>
