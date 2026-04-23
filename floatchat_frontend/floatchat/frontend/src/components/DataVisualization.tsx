@@ -22,12 +22,22 @@ const DataVisualization: React.FC<DataVisualizationProps> = ({ darkMode, vizOpti
   const renderContent = () => {
     if (!vizOptions) {
       return (
-        <div className="h-full w-full flex flex-col items-center justify-center text-sm">
-          <p className={darkMode ? 'text-gray-300' : 'text-gray-600'}>
-            Data visualizations will appear here when you choose an action
-            like <span className="font-semibold text-blue-500">“View on map”</span> or
-            <span className="font-semibold text-emerald-500"> “Plot profiles”</span> from FloatChat.
-          </p>
+        <div className="h-full w-full flex flex-col items-center justify-center gap-4 px-8 text-center">
+          <div className="w-16 h-16 rounded-2xl bg-blue-500/10 flex items-center justify-center">
+            <BarChart3 className="w-8 h-8 text-blue-500/60" />
+          </div>
+          <div>
+            <p className={`text-sm font-medium mb-1 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+              Visualization Workspace
+            </p>
+            <p className={`text-xs leading-relaxed ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+              Send a query in FloatChat, then click 
+              <span className="font-medium text-blue-400">View on map</span>, 
+              <span className="font-medium text-emerald-400">Plot profiles</span>, or 
+              <span className="font-medium text-purple-400">T-S Diagram</span>
+               to render charts here.
+            </p>
+          </div>
         </div>
       );
     }
@@ -53,8 +63,20 @@ const DataVisualization: React.FC<DataVisualizationProps> = ({ darkMode, vizOpti
         const floatId = rows?.[0]?.platform_number || rows?.[0]?.float_id || '';
         if (!floatId) {
           return (
-            <div className="h-full flex items-center justify-center text-sm text-gray-400">
-              No float ID found in message data to show trajectory.
+            <div className="h-full flex flex-col items-center justify-center gap-3 px-8 text-center">
+              <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+                darkMode ? 'bg-cyan-500/10' : 'bg-cyan-100'
+              }`}>
+                <MapPin className="w-6 h-6 text-cyan-500/60" />
+              </div>
+              <p className={`text-sm font-medium ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                Trajectory requires a specific float
+              </p>
+              <p className={`text-xs leading-relaxed max-w-xs ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                Try asking for float-specific data, e.g.{' '}
+                <span className="font-medium text-cyan-400">"show data for float 2902266"</span>{' '}
+                then click Float Trajectory.
+              </p>
             </div>
           );
         }
@@ -70,16 +92,36 @@ const DataVisualization: React.FC<DataVisualizationProps> = ({ darkMode, vizOpti
             </div>
           );
         }
-        const temps = tsRows.map((r: any) => r.temperature_adjusted ?? r.temperature).filter((v: any) => v != null);
-        const sals = tsRows.map((r: any) => r.salinity_adjusted ?? r.salinity).filter((v: any) => v != null);
-        const depths = tsRows.map((r: any) => r.depth).filter((v: any) => v != null);
-        if (temps.length === 0 || sals.length === 0) {
+        const points = tsRows
+          .map((r: any) => {
+            const temp = Number(r.temperature_adjusted ?? r.temperature);
+            const sal = Number(r.salinity_adjusted ?? r.salinity);
+            const depthRaw = r.depth;
+            const depth = depthRaw == null ? null : Number(depthRaw);
+            if (!Number.isFinite(temp) || !Number.isFinite(sal)) {
+              return null;
+            }
+            return {
+              temp,
+              sal,
+              depth: Number.isFinite(depth) ? depth : null,
+            };
+          })
+          .filter((p: any) => p != null);
+
+        if (points.length === 0) {
           return (
             <div className="h-full flex items-center justify-center text-sm text-gray-400">
-              Temperature or salinity data missing for T-S diagram.
+              Temperature-salinity values are missing or invalid for this dataset.
             </div>
           );
         }
+
+        const temps = points.map((p: any) => p.temp);
+        const sals = points.map((p: any) => p.sal);
+        const hasDepthValues = points.some((p: any) => p.depth != null);
+        const depths = points.map((p: any) => (p.depth == null ? 0 : p.depth));
+
         return (
           <Plot
             data={[{
@@ -88,12 +130,12 @@ const DataVisualization: React.FC<DataVisualizationProps> = ({ darkMode, vizOpti
               mode: 'markers',
               type: 'scatter',
               marker: {
-                color: depths.length > 0 ? depths : '#3b82f6',
+                color: hasDepthValues ? depths : '#3b82f6',
                 colorscale: 'Viridis',
                 reversescale: true,
                 size: 5,
                 opacity: 0.7,
-                ...(depths.length > 0 ? {
+                ...(hasDepthValues ? {
                   colorbar: {
                     title: { text: 'Depth (m)', font: { size: 10 } },
                     thickness: 12,
@@ -154,63 +196,65 @@ const DataVisualization: React.FC<DataVisualizationProps> = ({ darkMode, vizOpti
   const currentType = vizOptions?.type ?? 'map';
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.6 }}
-      className={`rounded-2xl p-4 ${
-        darkMode ? 'bg-gray-800 border border-gray-700' : 'bg-white border border-gray-200'
-      } shadow-xl h-[600px] flex flex-col`}
-    >
-      {/* Header */}
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center space-x-2">
+    <div className="h-full flex flex-col">
+      {/* ── Workspace Header ── */}
+      <div
+        className={`flex-shrink-0 flex items-center justify-between px-5 py-3 border-b ${
+          darkMode ? 'border-gray-700/60' : 'border-gray-200'
+        }`}
+      >
+        <div className="flex items-center gap-3">
           <div
-            className={`w-9 h-9 rounded-full flex items-center justify-center ${
-              darkMode ? 'bg-blue-900/60' : 'bg-blue-100'
+            className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+              darkMode ? 'bg-blue-500/15' : 'bg-blue-100'
             }`}
           >
             <BarChart3 className="w-4 h-4 text-blue-500" />
           </div>
           <div>
-            <h2 className={`text-sm font-semibold ${darkMode ? 'text-white' : 'text-gray-900'}`}>
-              {titleByType[currentType]}
+            <h2 className={`text-sm font-semibold leading-tight ${darkMode ? 'text-white' : 'text-gray-900'}`}>
+              {vizOptions ? titleByType[currentType] : 'Visualization Workspace'}
             </h2>
-            <p className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-              {subtitleByType[currentType]}
+            <p className={`text-xs leading-tight ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+              {vizOptions ? subtitleByType[currentType] : 'Charts appear here'}
             </p>
           </div>
         </div>
 
-        <div className="flex items-center space-x-2 text-[11px]">
-          <div className="flex items-center space-x-1">
-            <MapPin className="w-3 h-3 text-blue-400" />
-            <span className={darkMode ? 'text-gray-300' : 'text-gray-700'}>ARGO region</span>
-          </div>
-          <div className="flex items-center space-x-1">
-            <Thermometer className="w-3 h-3 text-red-400" />
-            <span className={darkMode ? 'text-gray-300' : 'text-gray-700'}>Temp</span>
-          </div>
-          <div className="flex items-center space-x-1">
-            <Droplets className="w-3 h-3 text-sky-400" />
-            <span className={darkMode ? 'text-gray-300' : 'text-gray-700'}>Salinity</span>
-          </div>
-          <div className="flex items-center space-x-1">
-            <Waves className="w-3 h-3 text-emerald-400" />
-            <span className={darkMode ? 'text-gray-300' : 'text-gray-700'}>Profiles</span>
-          </div>
+        <div className="flex items-center gap-3">
+          {/* Legend chips — only when viz is active */}
+          {vizOptions && (
+            <div className="hidden md:flex items-center gap-3 text-[11px]">
+              <div className="flex items-center gap-1">
+                <MapPin className="w-3 h-3 text-blue-400" />
+                <span className={darkMode ? 'text-gray-400' : 'text-gray-500'}>Region</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <Thermometer className="w-3 h-3 text-red-400" />
+                <span className={darkMode ? 'text-gray-400' : 'text-gray-500'}>Temp</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <Droplets className="w-3 h-3 text-sky-400" />
+                <span className={darkMode ? 'text-gray-400' : 'text-gray-500'}>Salinity</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <Waves className="w-3 h-3 text-emerald-400" />
+                <span className={darkMode ? 'text-gray-400' : 'text-gray-500'}>Profiles</span>
+              </div>
+            </div>
+          )}
 
           {onClose && (
             <motion.button
               whileHover={{ scale: 1.1 }}
               whileTap={{ scale: 0.9 }}
               onClick={onClose}
-              className={`ml-2 p-1.5 rounded-lg transition-colors ${
+              className={`p-1.5 rounded-lg transition-colors ${
                 darkMode
-                  ? 'hover:bg-gray-600 text-gray-400 hover:text-white'
+                  ? 'hover:bg-gray-700 text-gray-400 hover:text-white'
                   : 'hover:bg-gray-200 text-gray-500 hover:text-gray-900'
               }`}
-              title="Close visualization"
+              title={vizOptions ? "Clear visualization" : "Close workspace"}
             >
               <X className="w-4 h-4" />
             </motion.button>
@@ -218,12 +262,15 @@ const DataVisualization: React.FC<DataVisualizationProps> = ({ darkMode, vizOpti
         </div>
       </div>
 
-      {/* Main Visualization Area */}
-      <div className="flex-1 min-h-0 mt-2 rounded-xl overflow-hidden border border-dashed
-        border-gray-600/40 bg-gray-900/10">
+      {/* ── Chart Canvas — the primary workspace ── */}
+      <div
+        className={`flex-1 min-h-0 ${
+          darkMode ? 'bg-gray-950' : 'bg-gray-50'
+        }`}
+      >
         {renderContent()}
       </div>
-    </motion.div>
+    </div>
   );
 };
 

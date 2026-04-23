@@ -11,6 +11,21 @@ const { success } = require("./baseController");
 const ChatHistory = require("../models/ChatHistory");
 const { logger } = require("../utils/logger");
 const queryOrchestrator = require("../services/queryOrchestrator");
+const { isProfileShape, isTsShape, shapeSummary } = require("../utils/visualizationDetector");
+const { detectLanguage, translateToEnglish, translateFromEnglish } = require("../services/languageService");
+
+const isTsRequested = (question = "", mode = "") => {
+  const q = String(question).toLowerCase();
+  const m = String(mode).toLowerCase();
+  return (
+    m === "ts" ||
+    q.includes("temperature-salinity") ||
+    q.includes("temperature salinity") ||
+    q.includes("t-s diagram") ||
+    q.includes("ts diagram") ||
+    q.includes("t-s plot")
+  );
+};
 
 const processQuery = async (req, res, next) => {
   const startedAt = Date.now();
@@ -25,13 +40,26 @@ const processQuery = async (req, res, next) => {
 
     logger.info(`📩 Received question: "${question}"`);
 
+    // =====================================================
+    //  LANGUAGE DETECTION — detect input language
+    // =====================================================
+    const detectedLang = await detectLanguage(question);
+    logger.info(`🌐 Detected language: ${detectedLang}`);
+
+    // Translate to English for the pipeline (if needed)
+    let normalizedQuestion = question;
+    if (detectedLang !== "en") {
+      normalizedQuestion = await translateToEnglish(question, detectedLang);
+      logger.info(`🔄 Normalized question: "${normalizedQuestion}"`);
+    }
+
     // Fetch recent conversation context for this user
     const chatHistory = await ChatHistory.getRecentContext(userId, 5);
 
     // =====================================================
     //  STEP 1 — Let orchestrator fully handle classification + data flow
     // =====================================================
-    const result = await queryOrchestrator.processQuery(question, mode, chatHistory);
+    const result = await queryOrchestrator.processQuery(normalizedQuestion, mode, chatHistory);
 
     // result:
     // {
@@ -43,6 +71,15 @@ const processQuery = async (req, res, next) => {
     // }
 
     const durationMs = Date.now() - startedAt;
+
+    // =====================================================
+    //  TRANSLATE ANSWER BACK to user's language (if needed)
+    // =====================================================
+    let finalAnswer = result.answer;
+    if (detectedLang !== "en" && finalAnswer) {
+      finalAnswer = await translateFromEnglish(finalAnswer, detectedLang);
+      logger.info(`🔄 Translated answer back to ${detectedLang}`);
+    }
 
     // =====================================================
     //  STEP 2a — Chat/conceptual responses: no data, no visualization
@@ -59,12 +96,13 @@ const processQuery = async (req, res, next) => {
       }
       return res.json({
         ok: true,
-        content: result.answer || "No answer available.",
+        content: finalAnswer || "No answer available.",
         hasVisualization: false,
         hasAR: false,
         visualizationType: null,
         data: null,
-        meta: { durationMs, error: null }
+        meta: { durationMs, error: null },
+        language: { detected: detectedLang, original: detectedLang }
       });
     }
 
@@ -77,23 +115,63 @@ const processQuery = async (req, res, next) => {
     }
     const hasVisualization = rows.length > 0;
     let visualizationType = null;
+    let visualizationMeta = null;
+
+    const tsRequested = isTsRequested(question, mode);
+    const profileShapeOk = isProfileShape(rows);
+    const tsShapeOk = isTsShape(rows);
+    const summary = shapeSummary(rows);
+
     if (hasVisualization) {
-      const r = rows[0];
-      if (r?.latitude != null && r?.longitude != null && r?.depth == null) {
+      const r = rows[0] || {};
+      if (tsRequested) {
+        visualizationType = tsShapeOk ? "ts" : "table";
+        visualizationMeta = tsShapeOk
+          ? { requested: "ts", downgraded: false, shapeSummary: summary }
+          : {
+              requested: "ts",
+              downgraded: true,
+              reason: "T-S chart requires paired numeric temperature and salinity values.",
+              shapeSummary: summary
+            };
+      } else if (r?.latitude != null && r?.longitude != null && r?.depth == null) {
         visualizationType = "map";
       } else if (r?.depth != null) {
-        visualizationType = "profile";
+        if (profileShapeOk) {
+          visualizationType = "profile";
+        } else {
+          visualizationType = "table";
+          visualizationMeta = {
+            requested: "profile",
+            downgraded: true,
+            reason: "Profile chart requires depth (or pressure) plus temperature/salinity values.",
+            shapeSummary: summary
+          };
+        }
       } else if (r?.juld != null || r?.profile_date != null) {
         visualizationType = "timeseries";
       } else {
         visualizationType = "table";
+      }
+
+      if (!visualizationMeta) {
+        visualizationMeta = {
+          requested: visualizationType,
+          downgraded: false,
+          shapeSummary: summary
+        };
+      }
+
+      if (visualizationMeta?.downgraded) {
+        logger.warn(`Visualization downgraded: ${JSON.stringify(visualizationMeta)}`);
       }
     }
 
     const responseData = hasVisualization ? {
       rows: rows.slice(0, 100),
       sql: result.sql || null,
-      rowCount: rows.length
+      rowCount: rows.length,
+      visualizationMeta
     } : null;
 
     // =====================================================
@@ -121,12 +199,13 @@ const processQuery = async (req, res, next) => {
     // =====================================================
     return res.json({
       ok: true,
-      content: result.answer || "No answer available.",
+      content: finalAnswer || "No answer available.",
       hasVisualization,
       hasAR: false,
       visualizationType,
       data: responseData,
-      meta: { durationMs, error: result.error || null }
+      meta: { durationMs, error: result.error || null, visualizationMeta },
+      language: { detected: detectedLang, original: detectedLang }
     });
 
   } catch (err) {

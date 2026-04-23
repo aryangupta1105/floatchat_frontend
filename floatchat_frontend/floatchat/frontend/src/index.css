@@ -2,6 +2,13 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Full-height scaffold — required for h-screen / h-full to cascade correctly */
+html,
+body,
+#root {
+  height: 100%;
+}
+
 /* Ensure Leaflet maps never overlap fixed header/nav (z-[1000]+) */
 .leaflet-container {
   z-index: 0 !important;
